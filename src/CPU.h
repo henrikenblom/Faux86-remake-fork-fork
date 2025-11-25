@@ -157,6 +157,10 @@ namespace Faux86
 		void deliverInterrupt(uint8_t vector, bool software_int = false, uint32_t error_code = 0);
 		bool isProtectedMode();
 
+	// I/O Permission checking methods
+	bool checkIOPermission(uint16_t port, uint8_t size);
+	uint8_t getIOPL();
+
 #endif // CPU_386
 		
 	private:

@@ -3433,24 +3433,48 @@ void CPU::exec86 (uint32_t execloops)
 					case 0xE4:	/* E4 IN regs.byteregs[regal] Ib */
 						oper1b = getmem8 (segregs[regcs], ip);
 						StepIP (1);
+#ifdef CPU_386
+				if (!checkIOPermission(oper1b, 1)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						regs.byteregs[regal] = (uint8_t) vm.ports.inByte (oper1b);
 						break;
 
 					case 0xE5:	/* E5 IN eAX Ib */
 						oper1b = getmem8 (segregs[regcs], ip);
 						StepIP (1);
+#ifdef CPU_386
+				if (!checkIOPermission(oper1b, 2)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						regs.wordregs[regax] = vm.ports.inWord (oper1b);
 						break;
 
 					case 0xE6:	/* E6 OUT Ib regs.byteregs[regal] */
 						oper1b = getmem8 (segregs[regcs], ip);
 						StepIP (1);
+#ifdef CPU_386
+				if (!checkIOPermission(oper1b, 1)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						vm.ports.outByte (oper1b, regs.byteregs[regal]);
 						break;
 
 					case 0xE7:	/* E7 OUT Ib eAX */
 						oper1b = getmem8 (segregs[regcs], ip);
 						StepIP (1);
+#ifdef CPU_386
+				if (!checkIOPermission(oper1b, 2)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						vm.ports.outWord (oper1b, regs.wordregs[regax]);
 						break;
 
@@ -3485,21 +3509,45 @@ void CPU::exec86 (uint32_t execloops)
 
 					case 0xEC:	/* EC IN regs.byteregs[regal] regdx */
 						oper1 = regs.wordregs[regdx];
+#ifdef CPU_386
+				if (!checkIOPermission(oper1, 1)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						regs.byteregs[regal] = (uint8_t) vm.ports.inByte (oper1);
 						break;
 
 					case 0xED:	/* ED IN eAX regdx */
 						oper1 = regs.wordregs[regdx];
+#ifdef CPU_386
+				if (!checkIOPermission(oper1, 2)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						regs.wordregs[regax] = vm.ports.inWord (oper1);
 						break;
 
 					case 0xEE:	/* EE OUT regdx regs.byteregs[regal] */
 						oper1 = regs.wordregs[regdx];
+#ifdef CPU_386
+				if (!checkIOPermission(oper1, 1)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						vm.ports.outByte (oper1, regs.byteregs[regal]);
 						break;
 
 					case 0xEF:	/* EF OUT regdx eAX */
 						oper1 = regs.wordregs[regdx];
+#ifdef CPU_386
+				if (!checkIOPermission(oper1, 2)) {
+					intcall86(13); // #GP exception
+					break;
+				}
+#endif
 						vm.ports.outWord (oper1, regs.wordregs[regax]);
 						break;
 
@@ -4955,6 +5003,114 @@ void CPU::switchTask(uint16_t new_task_selector, bool is_call, bool is_iret)
 bool CPU::isProtectedMode()
 {
 	return (cr0 & CR0_PE) != 0;
+}
+
+// Get I/O Privilege Level from EFLAGS
+// IOPL is stored in bits 12-13 of EFLAGS
+uint8_t CPU::getIOPL()
+{
+	uint16_t flags = makeflagsword();
+	return (flags >> 12) & 3;
+}
+
+// Check if I/O operation to specified port is allowed
+// Returns true if allowed, false if permission denied
+bool CPU::checkIOPermission(uint16_t port, uint8_t size)
+{
+	// Real mode: always allow I/O
+	if (!isProtectedMode())
+	{
+		return true;
+	}
+
+	// Get Current Privilege Level (CPL) and I/O Privilege Level (IOPL)
+	uint8_t cpl = getCurrentPrivilegeLevel();
+	uint8_t iopl = getIOPL();
+
+	// If CPL <= IOPL, I/O is allowed without bitmap check
+	if (cpl <= iopl)
+	{
+		return true;
+	}
+
+	// CPL > IOPL: need to check TSS I/O permission bitmap
+	// Get TSS base and limit
+	if (!tss_cache.valid || tr_reg == 0)
+	{
+		log(LogVerbose, "[CPU] I/O permission check: no valid TSS");
+		return false;  // No TSS loaded, deny I/O
+	}
+
+	uint32_t tss_base = tss_cache.base;
+	uint32_t tss_limit = tss_cache.limit;
+
+	// Read I/O bitmap base offset from TSS (at offset 0x66)
+	uint32_t io_bitmap_offset_addr = tss_base + 0x66;
+	uint16_t io_bitmap_base = vm.memory.readWord(io_bitmap_offset_addr);
+
+	// If io_bitmap_base is 0xFFFF or beyond TSS limit, no I/O bitmap exists
+	if (io_bitmap_base == 0xFFFF || io_bitmap_base > tss_limit)
+	{
+		log(LogVerbose, "[CPU] I/O permission check: no I/O bitmap (base=%04X limit=%08X)",
+		    io_bitmap_base, tss_limit);
+		return false;  // No bitmap = deny all I/O
+	}
+
+	// Calculate address of bitmap byte for this port
+	// Each port has one bit: byte_offset = port / 8, bit_offset = port % 8
+	uint32_t byte_offset = port >> 3;  // port / 8
+	uint8_t bit_offset = port & 7;     // port % 8
+
+	// Check if bitmap byte is within TSS limit
+	uint32_t bitmap_byte_addr = tss_base + io_bitmap_base + byte_offset;
+	if (io_bitmap_base + byte_offset > tss_limit)
+	{
+		log(LogVerbose, "[CPU] I/O permission check: bitmap byte out of bounds (port=%04X)",
+		    port);
+		return false;  // Bitmap byte out of bounds = deny
+	}
+
+	// Read bitmap byte
+	uint8_t bitmap_byte = vm.memory.readByte(bitmap_byte_addr);
+
+	// Check if bit is set (1 = deny, 0 = allow)
+	if (bitmap_byte & (1 << bit_offset))
+	{
+		log(LogVerbose, "[CPU] I/O permission denied: port=%04X CPL=%d IOPL=%d",
+		    port, cpl, iopl);
+		return false;  // Bit set = deny
+	}
+
+	// For word (16-bit) access, also check port+1
+	if (size == 2)
+	{
+		uint16_t port2 = port + 1;
+		uint32_t byte_offset2 = port2 >> 3;
+		uint8_t bit_offset2 = port2 & 7;
+
+		// Check if second bitmap byte is within TSS limit
+		uint32_t bitmap_byte_addr2 = tss_base + io_bitmap_base + byte_offset2;
+		if (io_bitmap_base + byte_offset2 > tss_limit)
+		{
+			log(LogVerbose, "[CPU] I/O permission check: second bitmap byte out of bounds (port=%04X)",
+			    port2);
+			return false;
+		}
+
+		// Read second bitmap byte (might be same byte if crossing nibble boundary)
+		uint8_t bitmap_byte2 = vm.memory.readByte(bitmap_byte_addr2);
+
+		// Check if bit is set
+		if (bitmap_byte2 & (1 << bit_offset2))
+		{
+			log(LogVerbose, "[CPU] I/O permission denied: port=%04X+1 CPL=%d IOPL=%d",
+			    port, cpl, iopl);
+			return false;
+		}
+	}
+
+	// All checks passed - allow I/O
+	return true;
 }
 
 // Load a gate descriptor from IDT
