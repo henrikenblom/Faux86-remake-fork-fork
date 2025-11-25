@@ -4619,23 +4619,332 @@ uint32_t CPU::getTSSLimit()
 }
 
 // Task switch operation
-// This is a complex operation - full implementation deferred to Phase 6.2
+// This is the complete i386 task switching implementation
 void CPU::switchTask(uint16_t new_task_selector, bool is_call, bool is_iret)
 {
-	log(LogVerbose, "[CPU] Task switch: new_task=%04X call=%d iret=%d (STUB)",
+	log(LogVerbose, "[CPU] Task switch: new_task=%04X call=%d iret=%d",
 	    new_task_selector, is_call, is_iret);
 
-	// TODO: Implement full task switching in Phase 6.2:
-	// 1. Save current task state to current TSS
-	// 2. Load new TSS descriptor
-	// 3. Load new task state from new TSS
-	// 4. Update backlink if this is a CALL
-	// 5. Switch CR3 if different
-	// 6. Load segment registers
-	// 7. Update TR
+	// Get current task selector
+	uint16_t old_task_selector = tr_reg;
 
-	// For now, just log the attempt
-	log(LogError, "[CPU] Task switching not yet implemented (Phase 6.2)");
+	// ========================================================================
+	// Step 1: Save current task state to current TSS
+	// ========================================================================
+
+	if (old_task_selector != 0 && tss_cache.valid)
+	{
+		log(LogVerbose, "[CPU] Saving current task state (TR=%04X)", old_task_selector);
+
+		// Get current TSS base address
+		uint32_t old_tss_base = tss_cache.base;
+
+		// Create TSS structure with current CPU state
+		TSS32 old_tss;
+
+		// Link field - only updated if this is a CALL
+		old_tss.link = 0;  // Will be set by new task if needed
+		old_tss.reserved0 = 0;
+
+		// Stack pointers for privilege levels 0-2 (don't update - set by OS)
+		// These are loaded from existing TSS, not from current state
+		TSS32 existing_tss = loadTSS(old_tss_base);
+		old_tss.esp0 = existing_tss.esp0;
+		old_tss.ss0 = existing_tss.ss0;
+		old_tss.reserved1 = 0;
+		old_tss.esp1 = existing_tss.esp1;
+		old_tss.ss1 = existing_tss.ss1;
+		old_tss.reserved2 = 0;
+		old_tss.esp2 = existing_tss.esp2;
+		old_tss.ss2 = existing_tss.ss2;
+		old_tss.reserved3 = 0;
+
+		// CR3 - Page directory base
+		old_tss.cr3 = cr3;
+
+		// Instruction pointer and flags
+		old_tss.eip = ip;  // Will point to next instruction after task switch
+		old_tss.eflags = makeflagsword();
+
+		// General purpose registers
+		#ifdef CPU_386
+		old_tss.eax = regs.dwordregs[regax];
+		old_tss.ecx = regs.dwordregs[regcx];
+		old_tss.edx = regs.dwordregs[regdx];
+		old_tss.ebx = regs.dwordregs[regbx];
+		old_tss.esp = regs.dwordregs[regsp];
+		old_tss.ebp = regs.dwordregs[regbp];
+		old_tss.esi = regs.dwordregs[regsi];
+		old_tss.edi = regs.dwordregs[regdi];
+		#else
+		old_tss.eax = regs.wordregs[regax];
+		old_tss.ecx = regs.wordregs[regcx];
+		old_tss.edx = regs.wordregs[regdx];
+		old_tss.ebx = regs.wordregs[regbx];
+		old_tss.esp = regs.wordregs[regsp];
+		old_tss.ebp = regs.wordregs[regbp];
+		old_tss.esi = regs.wordregs[regsi];
+		old_tss.edi = regs.wordregs[regdi];
+		#endif
+
+		// Segment selectors
+		old_tss.es = segregs[reges];
+		old_tss.reserved4 = 0;
+		old_tss.cs = segregs[regcs];
+		old_tss.reserved5 = 0;
+		old_tss.ss = segregs[regss];
+		old_tss.reserved6 = 0;
+		old_tss.ds = segregs[regds];
+		old_tss.reserved7 = 0;
+
+		#ifdef CPU_386
+		old_tss.fs = segregs_ext[0];  // FS
+		old_tss.reserved8 = 0;
+		old_tss.gs = segregs_ext[1];  // GS
+		old_tss.reserved9 = 0;
+		#else
+		old_tss.fs = 0;
+		old_tss.reserved8 = 0;
+		old_tss.gs = 0;
+		old_tss.reserved9 = 0;
+		#endif
+
+		// LDT and other fields from existing TSS
+		old_tss.ldt = existing_tss.ldt;
+		old_tss.reserved10 = 0;
+		old_tss.trap_bit = existing_tss.trap_bit;
+		old_tss.io_bitmap_base = existing_tss.io_bitmap_base;
+
+		// Write old TSS to memory
+		storeTSS(old_tss_base, old_tss);
+
+		log(LogVerbose, "[CPU] Saved: EIP=%08X ESP=%08X", old_tss.eip, old_tss.esp);
+	}
+
+	// ========================================================================
+	// Step 2: Load new TSS descriptor
+	// ========================================================================
+
+	SegmentDescriptor new_tss_desc = loadDescriptor(new_task_selector);
+
+	// Verify this is a TSS descriptor
+	uint8_t new_type = new_tss_desc.getType();
+	bool is_tss = (new_type == SYS_TSS_32_AVAILABLE) || (new_type == SYS_TSS_32_BUSY) ||
+	              (new_type == SYS_TSS_16_AVAILABLE) || (new_type == SYS_TSS_16_BUSY);
+
+	if (!is_tss)
+	{
+		log(LogError, "[CPU] Task switch failed: descriptor is not a TSS (type=%02X)", new_type);
+		// TODO: Generate #GP exception
+		return;
+	}
+
+	// Check if TSS is present
+	if (!new_tss_desc.isPresent())
+	{
+		log(LogError, "[CPU] Task switch failed: TSS not present");
+		// TODO: Generate #NP exception
+		return;
+	}
+
+	// For IRET, TSS must be busy; for CALL/JMP, TSS must be available
+	if (is_iret)
+	{
+		if (new_type != SYS_TSS_32_BUSY && new_type != SYS_TSS_16_BUSY)
+		{
+			log(LogError, "[CPU] IRET task switch: TSS not busy (type=%02X)", new_type);
+			// TODO: Generate #GP exception
+			return;
+		}
+	}
+	else
+	{
+		if (new_type == SYS_TSS_32_BUSY || new_type == SYS_TSS_16_BUSY)
+		{
+			log(LogError, "[CPU] Task switch: TSS already busy (type=%02X)", new_type);
+			// TODO: Generate #GP exception
+			return;
+		}
+	}
+
+	uint32_t new_tss_base = new_tss_desc.getBase();
+	uint32_t new_tss_limit = new_tss_desc.getLimit();
+
+	// Check TSS limit
+	if (new_tss_limit < TSS32::MIN_SIZE - 1)
+	{
+		log(LogError, "[CPU] Task switch: TSS limit too small (%08X)", new_tss_limit);
+		// TODO: Generate #GP exception
+		return;
+	}
+
+	log(LogVerbose, "[CPU] New TSS: base=%08X limit=%08X", new_tss_base, new_tss_limit);
+
+	// ========================================================================
+	// Step 3: Load new task state from new TSS
+	// ========================================================================
+
+	TSS32 new_tss = loadTSS(new_tss_base);
+
+	// Update backlink if this is a CALL
+	if (is_call)
+	{
+		log(LogVerbose, "[CPU] Setting backlink to old task: %04X", old_task_selector);
+		new_tss.link = old_task_selector;
+		// Write back the link field
+		vm.memory.writeWord(new_tss_base + 0x00, new_tss.link);
+	}
+
+	// Load CR3 (page directory base) - this may flush TLB
+	uint32_t old_cr3 = cr3;
+	cr3 = new_tss.cr3;
+	if (cr3 != old_cr3 && isPagingEnabled())
+	{
+		log(LogVerbose, "[CPU] CR3 changed: %08X -> %08X, flushing TLB", old_cr3, cr3);
+		flushTLB();
+	}
+
+	// Load instruction pointer and flags
+	ip = new_tss.eip & 0xFFFF;
+	decodeflagsword(new_tss.eflags & 0xFFFF);
+
+	// Clear NT (Nested Task) flag if this is IRET
+	if (is_iret)
+	{
+		// NT flag is bit 14 of FLAGS
+		// For now, we don't fully support NT flag - just clear it
+	}
+
+	// Load general purpose registers
+	#ifdef CPU_386
+	regs.dwordregs[regax] = new_tss.eax;
+	regs.dwordregs[regcx] = new_tss.ecx;
+	regs.dwordregs[regdx] = new_tss.edx;
+	regs.dwordregs[regbx] = new_tss.ebx;
+	regs.dwordregs[regsp] = new_tss.esp;
+	regs.dwordregs[regbp] = new_tss.ebp;
+	regs.dwordregs[regsi] = new_tss.esi;
+	regs.dwordregs[regdi] = new_tss.edi;
+	#else
+	regs.wordregs[regax] = new_tss.eax & 0xFFFF;
+	regs.wordregs[regcx] = new_tss.ecx & 0xFFFF;
+	regs.wordregs[regdx] = new_tss.edx & 0xFFFF;
+	regs.wordregs[regbx] = new_tss.ebx & 0xFFFF;
+	regs.wordregs[regsp] = new_tss.esp & 0xFFFF;
+	regs.wordregs[regbp] = new_tss.ebp & 0xFFFF;
+	regs.wordregs[regsi] = new_tss.esi & 0xFFFF;
+	regs.wordregs[regdi] = new_tss.edi & 0xFFFF;
+	#endif
+
+	log(LogVerbose, "[CPU] Loaded: EIP=%08X ESP=%08X EAX=%08X",
+	    new_tss.eip, new_tss.esp, new_tss.eax);
+
+	// ========================================================================
+	// Step 4: Load segment registers
+	// ========================================================================
+
+	// Load segment registers using loadSegmentRegister for proper cache updates
+	loadSegmentRegister(reges, new_tss.es);
+	loadSegmentRegister(regcs, new_tss.cs);
+	loadSegmentRegister(regss, new_tss.ss);
+	loadSegmentRegister(regds, new_tss.ds);
+
+	#ifdef CPU_386
+	// Load FS and GS if in protected mode
+	if (cpu_mode == MODE_PROTECTED)
+	{
+		loadSegmentRegister(4, new_tss.fs);  // FS is index 4
+		loadSegmentRegister(5, new_tss.gs);  // GS is index 5
+	}
+	#endif
+
+	// Load LDT register if present
+	if (new_tss.ldt != 0)
+	{
+		log(LogVerbose, "[CPU] Loading LDT: %04X", new_tss.ldt);
+		ldtr = new_tss.ldt;
+		// TODO: Implement full LDT descriptor loading
+	}
+
+	// ========================================================================
+	// Step 5: Mark old TSS as not busy, new TSS as busy
+	// ========================================================================
+
+	// Mark old TSS as available (if it was valid)
+	if (old_task_selector != 0 && !is_iret)
+	{
+		Selector old_sel;
+		old_sel.value = old_task_selector;
+		uint32_t old_table_base = old_sel.isTI() ? 0 : gdtr.base;
+		uint32_t old_desc_addr = old_table_base + (old_sel.getIndex() * 8);
+
+		// Read old descriptor
+		SegmentDescriptor old_desc;
+		uint8_t* old_desc_bytes = (uint8_t*)&old_desc;
+		for (int i = 0; i < 8; i++)
+		{
+			old_desc_bytes[i] = vm.memory.readByte(old_desc_addr + i);
+		}
+
+		// Mark as available (0xB -> 0x9 for 32-bit TSS)
+		if ((old_desc.access & 0x0F) == SYS_TSS_32_BUSY)
+		{
+			old_desc.access = (old_desc.access & 0xF0) | SYS_TSS_32_AVAILABLE;
+
+			// Write back
+			for (int i = 0; i < 8; i++)
+			{
+				vm.memory.writeByte(old_desc_addr + i, old_desc_bytes[i]);
+			}
+
+			log(LogVerbose, "[CPU] Marked old TSS %04X as available", old_task_selector);
+		}
+	}
+
+	// Mark new TSS as busy (if not IRET - IRET leaves it busy)
+	if (!is_iret)
+	{
+		Selector new_sel;
+		new_sel.value = new_task_selector;
+		uint32_t new_table_base = new_sel.isTI() ? 0 : gdtr.base;
+		uint32_t new_desc_addr = new_table_base + (new_sel.getIndex() * 8);
+
+		// Read new descriptor
+		SegmentDescriptor updated_new_desc;
+		uint8_t* new_desc_bytes = (uint8_t*)&updated_new_desc;
+		for (int i = 0; i < 8; i++)
+		{
+			new_desc_bytes[i] = vm.memory.readByte(new_desc_addr + i);
+		}
+
+		// Mark as busy (0x9 -> 0xB for 32-bit TSS)
+		if ((updated_new_desc.access & 0x0F) == SYS_TSS_32_AVAILABLE)
+		{
+			updated_new_desc.access = (updated_new_desc.access & 0xF0) | SYS_TSS_32_BUSY;
+
+			// Write back
+			for (int i = 0; i < 8; i++)
+			{
+				vm.memory.writeByte(new_desc_addr + i, new_desc_bytes[i]);
+			}
+
+			log(LogVerbose, "[CPU] Marked new TSS %04X as busy", new_task_selector);
+		}
+	}
+
+	// ========================================================================
+	// Step 6: Update TR (Task Register)
+	// ========================================================================
+
+	tr_reg = new_task_selector;
+	tss_cache.selector = new_task_selector;
+	tss_cache.descriptor = new_tss_desc;
+	tss_cache.base = new_tss_base;
+	tss_cache.limit = new_tss_limit;
+	tss_cache.valid = true;
+
+	log(LogVerbose, "[CPU] Task switch complete: TR=%04X CS:IP=%04X:%04X",
+	    tr_reg, segregs[regcs], ip);
 }
 
 // ============================================================================
