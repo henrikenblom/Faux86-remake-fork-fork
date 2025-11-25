@@ -236,6 +236,9 @@ namespace Faux86
 		void op_and32();
 		void op_or32();
 		void op_xor32();
+		void op_div32(uint64_t valdiv, uint32_t divisor);
+		void op_idiv32(uint64_t valdiv, uint32_t divisor);
+		void op_grp3_32();
 #endif
 
 

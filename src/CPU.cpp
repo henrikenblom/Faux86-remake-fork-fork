@@ -2832,7 +2832,13 @@ void CPU::exec86 (uint32_t execloops)
 								break;
 							}
 
-						putmem16 (segregs[reges], regs.wordregs[regdi], getmem16 (useseg, regs.wordregs[regsi]) );
+	#ifdef CPU_386
+					if (operand_size_32) {
+						uint32_t value = getmem32(useseg, regs.dwordregs[regsi]);
+						putmem32(segregs[reges], regs.dwordregs[regdi], value);
+					} else
+#endif
+					putmem16(segregs[reges], regs.wordregs[regdi], getmem16(useseg, regs.wordregs[regsi]));
 						if (df) {
 								regs.wordregs[regsi] = regs.wordregs[regsi] - 2;
 								regs.wordregs[regdi] = regs.wordregs[regdi] - 2;
@@ -3578,11 +3584,23 @@ void CPU::exec86 (uint32_t execloops)
 
 					case 0xF7:	/* F7 GRP3b Ev */
 						modregrm();
-						oper1 = readrm16 (rm);
-						op_grp3_16();
-						if ( (reg > 1) && (reg < 4) ) {
-								writerm16 (rm, res16);
+						// Handle 32-bit vs 16-bit GRP3 operations
+#ifdef CPU_386
+						if (operand_size_32) {
+							oper1_32 = readrm32(rm);
+							op_grp3_32();
+							if ((reg > 1) && (reg < 4)) {
+								writerm32(rm, res32);
 							}
+						} else
+#endif
+						{
+							oper1 = readrm16(rm);
+							op_grp3_16();
+							if ((reg > 1) && (reg < 4)) {
+								writerm16(rm, res16);
+							}
+						}
 						break;
 
 					case 0xF8:	/* F8 CLC */
@@ -4006,6 +4024,150 @@ FUNC_INLINE void CPU::op_xor32()
 {
 	res32 = oper1_32 ^ oper2_32;
 	flag_log32(res32);
+}
+
+// ============================================================================
+// i386 32-bit Multiply and Divide Operations
+// ============================================================================
+
+// 32-bit unsigned divide: EDX:EAX / divisor -> quotient in EAX, remainder in EDX
+FUNC_INLINE void CPU::op_div32(uint64_t valdiv, uint32_t divisor)
+{
+	if (divisor == 0) {
+		intcall86(0);  // Divide by zero exception
+		return;
+	}
+
+	uint64_t quotient = valdiv / (uint64_t)divisor;
+	if (quotient > 0xFFFFFFFF) {
+		intcall86(0);  // Quotient overflow exception
+		return;
+	}
+
+	regs.dwordregs[regdx] = valdiv % (uint64_t)divisor;  // Remainder
+	regs.dwordregs[regax] = (uint32_t)quotient;          // Quotient
+}
+
+// 32-bit signed divide: EDX:EAX / divisor -> quotient in EAX, remainder in EDX
+FUNC_INLINE void CPU::op_idiv32(uint64_t valdiv, uint32_t divisor)
+{
+	if (divisor == 0) {
+		intcall86(0);  // Divide by zero exception
+		return;
+	}
+
+	int64_t s_valdiv;
+	int64_t s_divisor;
+	int64_t s_quotient;
+	int64_t s_remainder;
+
+	// Sign extend divisor
+	s_divisor = (int32_t)divisor;
+
+	// Sign extend dividend
+	s_valdiv = (int64_t)valdiv;
+	if (valdiv & 0x8000000000000000ULL) {
+		// Already negative in two's complement
+	}
+
+	s_quotient = s_valdiv / s_divisor;
+	s_remainder = s_valdiv % s_divisor;
+
+	// Check for quotient overflow
+	if (s_quotient > 2147483647LL || s_quotient < -2147483648LL) {
+		intcall86(0);  // Quotient overflow exception
+		return;
+	}
+
+	regs.dwordregs[regax] = (uint32_t)s_quotient;   // Quotient
+	regs.dwordregs[regdx] = (uint32_t)s_remainder;  // Remainder
+}
+
+// GRP3 32-bit operations (TEST, NOT, NEG, MUL, IMUL, DIV, IDIV)
+FUNC_INLINE void CPU::op_grp3_32()
+{
+	switch (reg) {
+		case 0:
+		case 1:  // TEST
+			{
+				uint32_t imm = getmem32(segregs[regcs], ip);
+				StepIP(4);
+				flag_log32(oper1_32 & imm);
+			}
+			break;
+
+		case 2:  // NOT
+			res32 = ~oper1_32;
+			break;
+
+		case 3:  // NEG
+			res32 = (~oper1_32) + 1;
+			flag_sub32(0, oper1_32);
+			cf = (res32 != 0) ? 1 : 0;
+			break;
+
+		case 4:  // MUL - Unsigned multiply EDX:EAX = EAX * operand
+			{
+				uint64_t result = (uint64_t)regs.dwordregs[regax] * (uint64_t)oper1_32;
+				regs.dwordregs[regax] = (uint32_t)(result & 0xFFFFFFFF);
+				regs.dwordregs[regdx] = (uint32_t)(result >> 32);
+
+				flag_szp32(regs.dwordregs[regax]);
+
+				// CF and OF set if upper 32 bits are non-zero
+				if (regs.dwordregs[regdx] != 0) {
+					cf = 1;
+					of = 1;
+				} else {
+					cf = 0;
+					of = 0;
+				}
+#ifdef CPU_CLEAR_ZF_ON_MUL
+				zf = 0;
+#endif
+			}
+			break;
+
+		case 5:  // IMUL - Signed multiply EDX:EAX = EAX * operand
+			{
+				int64_t s1 = (int32_t)regs.dwordregs[regax];
+				int64_t s2 = (int32_t)oper1_32;
+				int64_t result = s1 * s2;
+
+				regs.dwordregs[regax] = (uint32_t)(result & 0xFFFFFFFF);
+				regs.dwordregs[regdx] = (uint32_t)(result >> 32);
+
+				flag_szp32(regs.dwordregs[regax]);
+
+				// CF and OF set if result doesn't fit in 32 bits (sign extension required)
+				int32_t signed_result = (int32_t)regs.dwordregs[regax];
+				if (regs.dwordregs[regdx] != (uint32_t)(signed_result >> 31)) {
+					cf = 1;
+					of = 1;
+				} else {
+					cf = 0;
+					of = 0;
+				}
+#ifdef CPU_CLEAR_ZF_ON_MUL
+				zf = 0;
+#endif
+			}
+			break;
+
+		case 6:  // DIV - Unsigned divide
+			{
+				uint64_t dividend = ((uint64_t)regs.dwordregs[regdx] << 32) | regs.dwordregs[regax];
+				op_div32(dividend, oper1_32);
+			}
+			break;
+
+		case 7:  // IDIV - Signed divide
+			{
+				uint64_t dividend = ((uint64_t)regs.dwordregs[regdx] << 32) | regs.dwordregs[regax];
+				op_idiv32(dividend, oper1_32);
+			}
+			break;
+	}
 }
 
 // ============================================================================
