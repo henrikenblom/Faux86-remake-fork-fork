@@ -2836,8 +2836,16 @@ void CPU::exec86 (uint32_t execloops)
 					if (operand_size_32) {
 						uint32_t value = getmem32(useseg, regs.dwordregs[regsi]);
 						putmem32(segregs[reges], regs.dwordregs[regdi], value);
+						if (df) {
+							regs.dwordregs[regsi] -= 4;
+							regs.dwordregs[regdi] -= 4;
+						} else {
+							regs.dwordregs[regsi] += 4;
+							regs.dwordregs[regdi] += 4;
+						}
 					} else
 #endif
+						{
 					putmem16(segregs[reges], regs.wordregs[regdi], getmem16(useseg, regs.wordregs[regsi]));
 						if (df) {
 								regs.wordregs[regsi] = regs.wordregs[regsi] - 2;
@@ -2847,6 +2855,7 @@ void CPU::exec86 (uint32_t execloops)
 								regs.wordregs[regsi] = regs.wordregs[regsi] + 2;
 								regs.wordregs[regdi] = regs.wordregs[regdi] + 2;
 							}
+						}
 
 						if (reptype) {
 								regs.wordregs[regcx] = regs.wordregs[regcx] - 1;
@@ -2981,6 +2990,17 @@ void CPU::exec86 (uint32_t execloops)
 								break;
 							}
 
+						#ifdef CPU_386
+						if (operand_size_32) {
+							putmem32(segregs[reges], regs.dwordregs[regdi], regs.dwordregs[regax]);
+							if (df) {
+								regs.dwordregs[regdi] -= 4;
+							} else {
+								regs.dwordregs[regdi] += 4;
+							}
+						} else
+#endif
+						{
 						putmem16 (segregs[reges], regs.wordregs[regdi], regs.wordregs[regax]);
 						if (df) {
 								regs.wordregs[regdi] = regs.wordregs[regdi] - 2;
@@ -2988,6 +3008,7 @@ void CPU::exec86 (uint32_t execloops)
 						else {
 								regs.wordregs[regdi] = regs.wordregs[regdi] + 2;
 							}
+						}
 
 						if (reptype) {
 								regs.wordregs[regcx] = regs.wordregs[regcx] - 1;
