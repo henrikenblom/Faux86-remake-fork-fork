@@ -1,0 +1,20 @@
+# Build artifacts
+*.o
+*.d
+*.elf
+*.lst
+*.map
+pi/kernel7.img
+pi/kernel8-32.img
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+own_cpp.txt
+/tmp/

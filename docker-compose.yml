@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: faux86-builder:latest
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    environment:
+      - CIRCLEHOME=/build/circle
