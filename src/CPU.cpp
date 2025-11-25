@@ -4023,23 +4023,36 @@ bool CPU::checkSegmentAccess(uint8_t seg, uint32_t offset, bool write)
 	return true;
 }
 
-// Translate segment:offset to linear address
+// Translate segment:offset to linear address (then to physical if paging enabled)
 uint32_t CPU::segmentTranslate(uint8_t seg, uint32_t offset)
 {
+	uint32_t linear;
+
 	if (cpu_mode == MODE_REAL)
 	{
 		// Real mode: segment * 16 + offset
 		uint32_t base = (seg < 4) ? (segregs[seg] << 4) : (segregs_ext[seg - 4] << 4);
-		return (base + (offset & 0xFFFF)) & 0xFFFFF;  // Wrap at 1MB
+		linear = (base + (offset & 0xFFFF)) & 0xFFFFF;  // Wrap at 1MB
+	}
+	else
+	{
+		// Protected mode
+		uint32_t base = getSegmentBase(seg);
+
+		// Check segment access (limit and permissions)
+		checkSegmentAccess(seg, offset, false);
+
+		linear = base + offset;
 	}
 
-	// Protected mode
-	uint32_t base = getSegmentBase(seg);
+	// If paging is enabled, translate linear to physical
+	if (isPagingEnabled())
+	{
+		bool user = (getCurrentPrivilegeLevel() == 3);
+		return translateLinear(linear, false, user);
+	}
 
-	// Check segment access (limit and permissions)
-	checkSegmentAccess(seg, offset, false);
-
-	return base + offset;
+	return linear;
 }
 
 // Get Current Privilege Level (CPL) from CS selector
@@ -4052,6 +4065,197 @@ uint8_t CPU::getCurrentPrivilegeLevel()
 
 	// CPL is bits 0-1 of CS selector
 	return segregs[regcs] & 3;
+}
+
+// ============================================================================
+// i386 Paging Support
+// ============================================================================
+
+// Check if paging is enabled
+bool CPU::isPagingEnabled()
+{
+	return (cr0 & CR0_PG) != 0;
+}
+
+// Translate linear address to physical address using page tables
+uint32_t CPU::translateLinear(uint32_t linear, bool write, bool user)
+{
+	// If paging is disabled, linear address = physical address
+	if (!isPagingEnabled())
+	{
+		return linear;
+	}
+
+	// Calculate TLB index
+	uint32_t tlb_index = (linear >> 12) % TLB_SIZE;
+
+	// Check appropriate TLB (read or write)
+	TLBEntry* tlb = write ? &tlb_write[tlb_index] : &tlb_read[tlb_index];
+
+	// Check TLB hit
+	if (tlb->matches(linear, tlb_generation))
+	{
+		// TLB hit - check permissions
+		if (write && !tlb->writable)
+		{
+			// Write to read-only page
+			goto page_fault;
+		}
+
+		if (user && !tlb->user)
+		{
+			// User access to supervisor page
+			goto page_fault;
+		}
+
+		// TLB hit and permissions OK
+		return tlb->translate(linear);
+	}
+
+	// TLB miss - walk page tables
+	{
+		// Extract page directory and page table indices
+		uint32_t pde_index = linear >> 22;              // Bits 22-31
+		uint32_t pte_index = (linear >> 12) & 0x3FF;    // Bits 12-21
+		uint32_t page_offset = linear & 0xFFF;          // Bits 0-11
+
+		// Read Page Directory Entry (PDE)
+		uint32_t pde_addr = (cr3 & 0xFFFFF000) + (pde_index * 4);
+		PageEntry pde;
+		pde.raw = vm.memory.readDword(pde_addr);
+
+		// Check if page directory entry is present
+		if (!pde.present)
+		{
+			log(LogVerbose, "[MMU] Page directory entry not present: lin=%08X pde_addr=%08X", linear, pde_addr);
+			cr2 = linear;
+			// TODO: Generate #PF exception
+			return linear;  // Stub: return linear address
+		}
+
+		// Check PDE permissions
+		if (user && !pde.us)
+		{
+			log(LogVerbose, "[MMU] PDE permission denied (user access to supervisor page)");
+			goto page_fault;
+		}
+
+		// Mark PDE as accessed
+		if (!pde.accessed)
+		{
+			pde.accessed = 1;
+			vm.memory.writeDword(pde_addr, pde.raw);
+		}
+
+		// Read Page Table Entry (PTE)
+		uint32_t pt_base = pde.getFrameAddress();
+		uint32_t pte_addr = pt_base + (pte_index * 4);
+		PageEntry pte;
+		pte.raw = vm.memory.readDword(pte_addr);
+
+		// Check if page table entry is present
+		if (!pte.present)
+		{
+			log(LogVerbose, "[MMU] Page table entry not present: lin=%08X pte_addr=%08X", linear, pte_addr);
+			cr2 = linear;
+			// TODO: Generate #PF exception
+			return linear;  // Stub: return linear address
+		}
+
+		// Check PTE permissions
+		if (write && !pte.rw)
+		{
+			log(LogVerbose, "[MMU] PTE write to read-only page");
+			goto page_fault;
+		}
+
+		if (user && !pte.us)
+		{
+			log(LogVerbose, "[MMU] PTE user access to supervisor page");
+			goto page_fault;
+		}
+
+		// Mark PTE as accessed (and dirty if writing)
+		bool pte_modified = false;
+		if (!pte.accessed)
+		{
+			pte.accessed = 1;
+			pte_modified = true;
+		}
+		if (write && !pte.dirty)
+		{
+			pte.dirty = 1;
+			pte_modified = true;
+		}
+		if (pte_modified)
+		{
+			vm.memory.writeDword(pte_addr, pte.raw);
+		}
+
+		// Calculate physical address
+		uint32_t physical = pte.getFrameAddress() | page_offset;
+
+		// Update TLB
+		tlb->update(linear, physical, pte.rw, pte.us, tlb_generation);
+
+		return physical;
+	}
+
+page_fault:
+	// Page fault - store faulting address in CR2
+	cr2 = linear;
+
+	// Build error code
+	PageFaultErrorCode error;
+	error.raw = 0;
+	error.p = 1;   // Protection violation (vs not present)
+	error.wr = write ? 1 : 0;
+	error.us = user ? 1 : 0;
+
+	log(LogVerbose, "[MMU] Page fault: lin=%08X write=%d user=%d error=%08X",
+	    linear, write, user, error.raw);
+
+	// TODO: Generate #PF exception with error code
+
+	// Stub: return linear address
+	return linear;
+}
+
+// Flush entire TLB (on CR3 write or mode change)
+void CPU::flushTLB()
+{
+	// Increment generation to invalidate all entries at once
+	tlb_generation++;
+
+	// Handle generation wraparound (should be rare)
+	if (tlb_generation == 0)
+	{
+		// Explicitly invalidate all entries and reset generation
+		for (int i = 0; i < TLB_SIZE; i++)
+		{
+			tlb_read[i].invalidate();
+			tlb_write[i].invalidate();
+		}
+		tlb_generation = 1;
+	}
+
+	log(LogVerbose, "[MMU] TLB flushed, generation=%d", tlb_generation);
+}
+
+// Flush single TLB entry (on page table modification)
+void CPU::flushTLBEntry(uint32_t linear_addr)
+{
+	uint32_t tlb_index = (linear_addr >> 12) % TLB_SIZE;
+
+	if (tlb_read[tlb_index].virtual_page == (linear_addr >> 12))
+	{
+		tlb_read[tlb_index].invalidate();
+	}
+
+	if (tlb_write[tlb_index].virtual_page == (linear_addr >> 12))
+	{
+		tlb_write[tlb_index].invalidate();
+	}
 }
 
 #endif // CPU_386

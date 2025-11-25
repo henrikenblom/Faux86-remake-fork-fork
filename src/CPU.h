@@ -26,6 +26,7 @@
 #include "CPUMacros.h"
 #ifdef CPU_386
 #include "Segmentation.h"
+#include "Paging.h"
 #endif
 
 namespace Faux86
@@ -117,6 +118,12 @@ namespace Faux86
 		uint8_t operand_size_32 = 0;  // 0x66 prefix flag
 		uint8_t address_size_32 = 0;  // 0x67 prefix flag
 
+		// TLB (Translation Lookaside Buffer)
+		static const int TLB_SIZE = 64;
+		TLBEntry tlb_read[TLB_SIZE];   // TLB for read operations
+		TLBEntry tlb_write[TLB_SIZE];  // TLB for write operations (stricter checks)
+		uint32_t tlb_generation = 1;   // Generation counter for bulk invalidation
+
 		// Protected mode segment management methods
 		SegmentDescriptor loadDescriptor(uint16_t selector);
 		void loadSegmentRegister(uint8_t seg, uint16_t selector);
@@ -125,6 +132,12 @@ namespace Faux86
 		bool checkSegmentAccess(uint8_t seg, uint32_t offset, bool write);
 		uint32_t segmentTranslate(uint8_t seg, uint32_t offset);
 		uint8_t getCurrentPrivilegeLevel();
+
+		// Paging methods
+		uint32_t translateLinear(uint32_t linear, bool write, bool user);
+		void flushTLB();
+		void flushTLBEntry(uint32_t linear_addr);
+		bool isPagingEnabled();
 
 #endif // CPU_386
 		
