@@ -3617,8 +3617,7 @@ void CPU::exec86 (uint32_t execloops)
 											uint16_t selector = readrm16(rm);
 											log(LogVerbose, "[CPU] LTR selector=%04X at %04X:%04X",
 												selector, savecs, saveip);
-											tr_reg = selector;
-											// Full TSS loading deferred to Phase 6
+											loadTaskRegister(selector);
 										}
 										break;
 
@@ -4484,6 +4483,159 @@ void CPU::flushTLBEntry(uint32_t linear_addr)
 	{
 		tlb_write[tlb_index].invalidate();
 	}
+}
+
+// ============================================================================
+// i386 TSS (Task State Segment) Management
+// ============================================================================
+
+// Load Task Register with TSS selector
+void CPU::loadTaskRegister(uint16_t selector)
+{
+	log(LogVerbose, "[CPU] Loading Task Register: selector=%04X", selector);
+
+	// Real mode: just store selector
+	if (cpu_mode == MODE_REAL)
+	{
+		tr_reg = selector;
+		tss_cache.invalidate();
+		return;
+	}
+
+	// Protected mode: load TSS descriptor
+	SegmentDescriptor tss_desc = loadDescriptor(selector);
+
+	// Verify this is a TSS descriptor
+	uint8_t type = tss_desc.getType();
+	bool is_tss = (type == SYS_TSS_32_AVAILABLE) || (type == SYS_TSS_32_BUSY) ||
+	              (type == SYS_TSS_16_AVAILABLE) || (type == SYS_TSS_16_BUSY);
+
+	if (!is_tss)
+	{
+		log(LogError, "[CPU] LTR: Descriptor is not a TSS (type=%02X)", type);
+		// TODO: Generate #GP exception
+		return;
+	}
+
+	// Check if TSS is present
+	if (!tss_desc.isPresent())
+	{
+		log(LogError, "[CPU] LTR: TSS not present");
+		// TODO: Generate #NP exception
+		return;
+	}
+
+	// Mark TSS as busy (change type from available to busy)
+	if (type == SYS_TSS_32_AVAILABLE)
+	{
+		// Update descriptor in memory to mark as busy
+		Selector sel;
+		sel.value = selector;
+		uint32_t table_base = sel.isTI() ? 0 : gdtr.base;  // LDT not yet implemented
+		uint32_t desc_addr = table_base + (sel.getIndex() * 8);
+
+		tss_desc.access = (tss_desc.access & 0xF2) | SYS_TSS_32_BUSY;
+
+		// Write back updated descriptor
+		for (int i = 0; i < 8; i++)
+		{
+			vm.memory.writeByte(desc_addr + i, ((uint8_t*)&tss_desc)[i]);
+		}
+	}
+
+	// Update TR and cache
+	tr_reg = selector;
+	tss_cache.selector = selector;
+	tss_cache.descriptor = tss_desc;
+	tss_cache.base = tss_desc.getBase();
+	tss_cache.limit = tss_desc.getLimit();
+	tss_cache.valid = true;
+
+	log(LogVerbose, "[CPU] TR loaded: base=%08X limit=%08X", tss_cache.base, tss_cache.limit);
+}
+
+// Load TSS from memory
+TSS32 CPU::loadTSS(uint32_t base_addr)
+{
+	TSS32 tss;
+
+	// Read TSS structure from memory byte by byte
+	uint8_t* tss_bytes = (uint8_t*)&tss;
+	for (uint32_t i = 0; i < sizeof(TSS32); i++)
+	{
+		tss_bytes[i] = vm.memory.readByte(base_addr + i);
+	}
+
+	return tss;
+}
+
+// Store TSS to memory
+void CPU::storeTSS(uint32_t base_addr, const TSS32& tss)
+{
+	// Write TSS structure to memory byte by byte
+	const uint8_t* tss_bytes = (const uint8_t*)&tss;
+	for (uint32_t i = 0; i < sizeof(TSS32); i++)
+	{
+		vm.memory.writeByte(base_addr + i, tss_bytes[i]);
+	}
+}
+
+// Get current TSS base address
+uint32_t CPU::getTSSBase()
+{
+	if (!tss_cache.valid)
+	{
+		// Reload TSS cache
+		if (tr_reg != 0)
+		{
+			loadTaskRegister(tr_reg);
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
+	return tss_cache.base;
+}
+
+// Get current TSS limit
+uint32_t CPU::getTSSLimit()
+{
+	if (!tss_cache.valid)
+	{
+		// Reload TSS cache
+		if (tr_reg != 0)
+		{
+			loadTaskRegister(tr_reg);
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
+	return tss_cache.limit;
+}
+
+// Task switch operation
+// This is a complex operation - full implementation deferred to Phase 6.2
+void CPU::switchTask(uint16_t new_task_selector, bool is_call, bool is_iret)
+{
+	log(LogVerbose, "[CPU] Task switch: new_task=%04X call=%d iret=%d (STUB)",
+	    new_task_selector, is_call, is_iret);
+
+	// TODO: Implement full task switching in Phase 6.2:
+	// 1. Save current task state to current TSS
+	// 2. Load new TSS descriptor
+	// 3. Load new task state from new TSS
+	// 4. Update backlink if this is a CALL
+	// 5. Switch CR3 if different
+	// 6. Load segment registers
+	// 7. Update TR
+
+	// For now, just log the attempt
+	log(LogError, "[CPU] Task switching not yet implemented (Phase 6.2)");
 }
 
 // ============================================================================

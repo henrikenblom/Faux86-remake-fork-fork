@@ -198,6 +198,70 @@ namespace Faux86
 		SYS_TRAP_GATE_32 = 0xF
 	};
 
+	// Task State Segment (TSS) - 32-bit format
+	// Used for task switching and privilege level changes
+	// Minimum size is 104 bytes (0x68), but can be larger with I/O permission bitmap
+	struct TSS32
+	{
+		uint16_t link;           // 0x00: Link to previous task (selector)
+		uint16_t reserved0;      // 0x02: Reserved
+		uint32_t esp0;           // 0x04: Stack pointer for privilege level 0
+		uint16_t ss0;            // 0x08: Stack segment for privilege level 0
+		uint16_t reserved1;      // 0x0A: Reserved
+		uint32_t esp1;           // 0x0C: Stack pointer for privilege level 1
+		uint16_t ss1;            // 0x10: Stack segment for privilege level 1
+		uint16_t reserved2;      // 0x12: Reserved
+		uint32_t esp2;           // 0x14: Stack pointer for privilege level 2
+		uint16_t ss2;            // 0x18: Stack segment for privilege level 2
+		uint16_t reserved3;      // 0x1A: Reserved
+		uint32_t cr3;            // 0x1C: Page directory base (PDBR)
+		uint32_t eip;            // 0x20: Instruction pointer
+		uint32_t eflags;         // 0x24: Flags register
+		uint32_t eax;            // 0x28: General purpose registers
+		uint32_t ecx;            // 0x2C
+		uint32_t edx;            // 0x30
+		uint32_t ebx;            // 0x34
+		uint32_t esp;            // 0x38
+		uint32_t ebp;            // 0x3C
+		uint32_t esi;            // 0x40
+		uint32_t edi;            // 0x44
+		uint16_t es;             // 0x48: Segment selectors
+		uint16_t reserved4;      // 0x4A: Reserved
+		uint16_t cs;             // 0x4C
+		uint16_t reserved5;      // 0x4E: Reserved
+		uint16_t ss;             // 0x50
+		uint16_t reserved6;      // 0x52: Reserved
+		uint16_t ds;             // 0x54
+		uint16_t reserved7;      // 0x56: Reserved
+		uint16_t fs;             // 0x58
+		uint16_t reserved8;      // 0x5A: Reserved
+		uint16_t gs;             // 0x5C
+		uint16_t reserved9;      // 0x5E: Reserved
+		uint16_t ldt;            // 0x60: LDT selector
+		uint16_t reserved10;     // 0x62: Reserved
+		uint16_t trap_bit;       // 0x64: T (trap) bit in bit 0, rest reserved
+		uint16_t io_bitmap_base; // 0x66: Offset to I/O permission bitmap (from TSS base)
+
+		// Minimum TSS size (without I/O bitmap)
+		static const uint32_t MIN_SIZE = 0x68;
+	};
+
+	// TSS Cache - stores loaded TSS information for fast access
+	struct TSSCache
+	{
+		uint16_t selector;       // TSS selector from TR register
+		SegmentDescriptor descriptor; // TSS descriptor
+		uint32_t base;           // Linear base address of TSS in memory
+		uint32_t limit;          // TSS limit
+		bool valid;              // Cache validity
+
+		// Invalidate cache
+		inline void invalidate()
+		{
+			valid = false;
+		}
+	};
+
 } // namespace Faux86
 
 #endif // CPU_386

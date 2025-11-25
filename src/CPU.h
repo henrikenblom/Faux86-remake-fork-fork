@@ -125,6 +125,9 @@ namespace Faux86
 		TLBEntry tlb_write[TLB_SIZE];  // TLB for write operations (stricter checks)
 		uint32_t tlb_generation = 1;   // Generation counter for bulk invalidation
 
+		// TSS (Task State Segment) Cache
+		TSSCache tss_cache;
+
 		// Protected mode segment management methods
 		SegmentDescriptor loadDescriptor(uint16_t selector);
 		void loadSegmentRegister(uint8_t seg, uint16_t selector);
@@ -133,6 +136,14 @@ namespace Faux86
 		bool checkSegmentAccess(uint8_t seg, uint32_t offset, bool write);
 		uint32_t segmentTranslate(uint8_t seg, uint32_t offset);
 		uint8_t getCurrentPrivilegeLevel();
+
+		// TSS (Task State Segment) management methods
+		void loadTaskRegister(uint16_t selector);
+		TSS32 loadTSS(uint32_t base_addr);
+		void storeTSS(uint32_t base_addr, const TSS32& tss);
+		void switchTask(uint16_t new_task_selector, bool is_call, bool is_iret);
+		uint32_t getTSSBase();
+		uint32_t getTSSLimit();
 
 		// Paging methods
 		uint32_t translateLinear(uint32_t linear, bool write, bool user);
