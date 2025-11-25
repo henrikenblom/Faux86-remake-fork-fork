@@ -3054,6 +3054,33 @@ void CPU::exec86 (uint32_t execloops)
 								break;
 							}
 
+						#ifdef CPU_386
+						if (operand_size_32) {
+							regs.dwordregs[regax] = getmem32(useseg, regs.dwordregs[regsi]);
+							if (df) {
+								regs.dwordregs[regsi] -= 4;
+							} else {
+								regs.dwordregs[regsi] += 4;
+							}
+						} else
+#endif
+						{
+
+						#ifdef CPU_386
+						if (operand_size_32) {
+							oper1_32 = getmem32(useseg, regs.dwordregs[regsi]);
+							oper2_32 = getmem32(segregs[reges], regs.dwordregs[regdi]);
+							flag_sub32(oper1_32, oper2_32);
+							if (df) {
+								regs.dwordregs[regsi] -= 4;
+								regs.dwordregs[regdi] -= 4;
+							} else {
+								regs.dwordregs[regsi] += 4;
+								regs.dwordregs[regdi] += 4;
+							}
+						} else
+#endif
+						{
 						oper1 = getmem16 (useseg, regs.wordregs[regsi]);
 						regs.wordregs[regax] = oper1;
 						if (df) {
@@ -3062,6 +3089,8 @@ void CPU::exec86 (uint32_t execloops)
 						else {
 								regs.wordregs[regsi] = regs.wordregs[regsi] + 2;
 							}
+
+						}
 
 						if (reptype) {
 								regs.wordregs[regcx] = regs.wordregs[regcx] - 1;
@@ -3125,6 +3154,8 @@ void CPU::exec86 (uint32_t execloops)
 						else {
 								regs.wordregs[regdi] = regs.wordregs[regdi] + 2;
 							}
+
+						}
 
 						if (reptype) {
 								regs.wordregs[regcx] = regs.wordregs[regcx] - 1;
@@ -3883,6 +3914,147 @@ void CPU::exec86 (uint32_t execloops)
 									log(LogVerbose, "[CPU] MOV DR%d, R%d (value=%08X) at %04X:%04X (stubbed)",
 										reg, rm, value, savecs, saveip);
 									// Debug registers stubbed - ignore writes for now
+								}
+								break;
+
+
+							case 0xA3:	/* BT - Bit Test */
+								{
+									modregrm();
+									uint32_t bit_base, bit_offset;
+									if (operand_size_32) {
+										bit_base = readrm32(rm);
+										bit_offset = regs.dwordregs[reg] & 0x1F;
+									} else {
+										bit_base = readrm16(rm);
+										bit_offset = getreg16(reg) & 0x0F;
+									}
+									cf = (bit_base >> bit_offset) & 1;
+									log(LogVerbose, "[CPU] BT at %04X:%04X", savecs, saveip);
+								}
+								break;
+
+							case 0xAB:	/* BTS - Bit Test and Set */
+								{
+									modregrm();
+									if (operand_size_32) {
+										uint32_t bit_base = readrm32(rm);
+										uint32_t bit_offset = regs.dwordregs[reg] & 0x1F;
+										cf = (bit_base >> bit_offset) & 1;
+										bit_base |= (1 << bit_offset);
+										writerm32(rm, bit_base);
+									} else {
+										uint16_t bit_base = readrm16(rm);
+										uint16_t bit_offset = getreg16(reg) & 0x0F;
+										cf = (bit_base >> bit_offset) & 1;
+										bit_base |= (1 << bit_offset);
+										writerm16(rm, bit_base);
+									}
+									log(LogVerbose, "[CPU] BTS at %04X:%04X", savecs, saveip);
+								}
+								break;
+
+							case 0xB3:	/* BTR - Bit Test and Reset */
+								{
+									modregrm();
+									if (operand_size_32) {
+										uint32_t bit_base = readrm32(rm);
+										uint32_t bit_offset = regs.dwordregs[reg] & 0x1F;
+										cf = (bit_base >> bit_offset) & 1;
+										bit_base &= ~(1 << bit_offset);
+										writerm32(rm, bit_base);
+									} else {
+										uint16_t bit_base = readrm16(rm);
+										uint16_t bit_offset = getreg16(reg) & 0x0F;
+										cf = (bit_base >> bit_offset) & 1;
+										bit_base &= ~(1 << bit_offset);
+										writerm16(rm, bit_base);
+									}
+									log(LogVerbose, "[CPU] BTR at %04X:%04X", savecs, saveip);
+								}
+								break;
+
+							case 0xBB:	/* BTC - Bit Test and Complement */
+								{
+									modregrm();
+									if (operand_size_32) {
+										uint32_t bit_base = readrm32(rm);
+										uint32_t bit_offset = regs.dwordregs[reg] & 0x1F;
+										cf = (bit_base >> bit_offset) & 1;
+										bit_base ^= (1 << bit_offset);
+										writerm32(rm, bit_base);
+									} else {
+										uint16_t bit_base = readrm16(rm);
+										uint16_t bit_offset = getreg16(reg) & 0x0F;
+										cf = (bit_base >> bit_offset) & 1;
+										bit_base ^= (1 << bit_offset);
+										writerm16(rm, bit_base);
+									}
+									log(LogVerbose, "[CPU] BTC at %04X:%04X", savecs, saveip);
+								}
+								break;
+
+							case 0xBC:	/* BSF - Bit Scan Forward */
+								{
+									modregrm();
+									if (operand_size_32) {
+										uint32_t src = readrm32(rm);
+										if (src == 0) {
+											zf = 1;
+										} else {
+											zf = 0;
+											uint32_t bit_index = 0;
+											while (!(src & (1 << bit_index))) {
+												bit_index++;
+											}
+											regs.dwordregs[reg] = bit_index;
+										}
+									} else {
+										uint16_t src = readrm16(rm);
+										if (src == 0) {
+											zf = 1;
+										} else {
+											zf = 0;
+											uint16_t bit_index = 0;
+											while (!(src & (1 << bit_index))) {
+												bit_index++;
+											}
+											putreg16(reg, bit_index);
+										}
+									}
+									log(LogVerbose, "[CPU] BSF at %04X:%04X", savecs, saveip);
+								}
+								break;
+
+							case 0xBD:	/* BSR - Bit Scan Reverse */
+								{
+									modregrm();
+									if (operand_size_32) {
+										uint32_t src = readrm32(rm);
+										if (src == 0) {
+											zf = 1;
+										} else {
+											zf = 0;
+											uint32_t bit_index = 31;
+											while (!(src & (1 << bit_index))) {
+												bit_index--;
+											}
+											regs.dwordregs[reg] = bit_index;
+										}
+									} else {
+										uint16_t src = readrm16(rm);
+										if (src == 0) {
+											zf = 1;
+										} else {
+											zf = 0;
+											uint16_t bit_index = 15;
+											while (!(src & (1 << bit_index))) {
+												bit_index--;
+											}
+											putreg16(reg, bit_index);
+										}
+									}
+									log(LogVerbose, "[CPU] BSR at %04X:%04X", savecs, saveip);
 								}
 								break;
 
