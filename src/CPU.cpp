@@ -3610,6 +3610,130 @@ skipexecution:
 
 #ifdef CPU_386
 // ============================================================================
+// i386 32-bit Flag Computation
+// ============================================================================
+
+// Set sign, zero, and parity flags for 32-bit value
+FUNC_INLINE void CPU::flag_szp32(uint32_t value)
+{
+	zf = (value == 0) ? 1 : 0;
+	sf = (value & 0x80000000) ? 1 : 0;
+	pf = parity[value & 0xFF];
+}
+
+// Set flags for logical operations (32-bit)
+FUNC_INLINE void CPU::flag_log32(uint32_t value)
+{
+	flag_szp32(value);
+	cf = 0;
+	of = 0;
+}
+
+// Set flags for ADD (32-bit)
+FUNC_INLINE void CPU::flag_add32(uint32_t v1, uint32_t v2)
+{
+	uint64_t result = (uint64_t)v1 + (uint64_t)v2;
+
+	flag_szp32((uint32_t)result);
+
+	// Carry flag: result doesn't fit in 32 bits
+	cf = (result > 0xFFFFFFFF) ? 1 : 0;
+
+	// Overflow: sign change when adding same-sign operands
+	of = (((v1 ^ result) & (v2 ^ result) & 0x80000000) != 0) ? 1 : 0;
+
+	// Auxiliary carry: carry from bit 3 to bit 4
+	af = (((v1 ^ v2 ^ result) & 0x10) != 0) ? 1 : 0;
+}
+
+// Set flags for SUB (32-bit)
+FUNC_INLINE void CPU::flag_sub32(uint32_t v1, uint32_t v2)
+{
+	uint64_t result = (uint64_t)v1 - (uint64_t)v2;
+
+	flag_szp32((uint32_t)result);
+
+	// Borrow flag: v2 > v1
+	cf = (v2 > v1) ? 1 : 0;
+
+	// Overflow: sign change when subtracting opposite-sign operands
+	of = (((v1 ^ v2) & (v1 ^ result) & 0x80000000) != 0) ? 1 : 0;
+
+	// Auxiliary borrow
+	af = (((v1 ^ v2 ^ result) & 0x10) != 0) ? 1 : 0;
+}
+
+// Set flags for ADC (32-bit)
+FUNC_INLINE void CPU::flag_adc32(uint32_t v1, uint32_t v2, uint32_t v3)
+{
+	uint64_t result = (uint64_t)v1 + (uint64_t)v2 + (uint64_t)v3;
+
+	flag_szp32((uint32_t)result);
+
+	cf = (result > 0xFFFFFFFF) ? 1 : 0;
+	of = (((v1 ^ result) & (v2 ^ result) & 0x80000000) != 0) ? 1 : 0;
+	af = (((v1 ^ v2 ^ result) & 0x10) != 0) ? 1 : 0;
+}
+
+// Set flags for SBB (32-bit)
+FUNC_INLINE void CPU::flag_sbb32(uint32_t v1, uint32_t v2, uint32_t v3)
+{
+	uint64_t result = (uint64_t)v1 - ((uint64_t)v2 + (uint64_t)v3);
+
+	flag_szp32((uint32_t)result);
+
+	cf = ((v2 + v3) > v1) ? 1 : 0;
+	of = (((v1 ^ v2) & (v1 ^ result) & 0x80000000) != 0) ? 1 : 0;
+	af = (((v1 ^ v2 ^ result) & 0x10) != 0) ? 1 : 0;
+}
+
+// ============================================================================
+// i386 32-bit Arithmetic and Logical Operations
+// ============================================================================
+
+FUNC_INLINE void CPU::op_add32()
+{
+	res32 = oper1_32 + oper2_32;
+	flag_add32(oper1_32, oper2_32);
+}
+
+FUNC_INLINE void CPU::op_adc32()
+{
+	res32 = oper1_32 + oper2_32 + cf;
+	flag_adc32(oper1_32, oper2_32, cf);
+}
+
+FUNC_INLINE void CPU::op_sub32()
+{
+	res32 = oper1_32 - oper2_32;
+	flag_sub32(oper1_32, oper2_32);
+}
+
+FUNC_INLINE void CPU::op_sbb32()
+{
+	res32 = oper1_32 - (oper2_32 + cf);
+	flag_sbb32(oper1_32, oper2_32, cf);
+}
+
+FUNC_INLINE void CPU::op_and32()
+{
+	res32 = oper1_32 & oper2_32;
+	flag_log32(res32);
+}
+
+FUNC_INLINE void CPU::op_or32()
+{
+	res32 = oper1_32 | oper2_32;
+	flag_log32(res32);
+}
+
+FUNC_INLINE void CPU::op_xor32()
+{
+	res32 = oper1_32 ^ oper2_32;
+	flag_log32(res32);
+}
+
+// ============================================================================
 // i386 32-bit Addressing and Memory Access
 // ============================================================================
 

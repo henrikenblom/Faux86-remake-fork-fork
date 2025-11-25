@@ -169,6 +169,15 @@ namespace Faux86
 		void flag_sub8(uint8_t v1, uint8_t v2);
 		void flag_sub16(uint16_t v1, uint16_t v2);
 
+#ifdef CPU_386
+		void flag_szp32(uint32_t value);
+		void flag_log32(uint32_t value);
+		void flag_add32(uint32_t v1, uint32_t v2);
+		void flag_sub32(uint32_t v1, uint32_t v2);
+		void flag_adc32(uint32_t v1, uint32_t v2, uint32_t v3);
+		void flag_sbb32(uint32_t v1, uint32_t v2, uint32_t v3);
+#endif
+
 		void op_adc8();
 		void op_adc16();
 		void op_add8();
@@ -183,6 +192,16 @@ namespace Faux86
 		void op_sub16();
 		void op_sbb8();
 		void op_sbb16();
+
+#ifdef CPU_386
+		void op_add32();
+		void op_adc32();
+		void op_sub32();
+		void op_sbb32();
+		void op_and32();
+		void op_or32();
+		void op_xor32();
+#endif
 
 
 		void intcall86(uint8_t intnum);
