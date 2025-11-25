@@ -4258,6 +4258,231 @@ void CPU::flushTLBEntry(uint32_t linear_addr)
 	}
 }
 
+// ============================================================================
+// i386 Exception and Interrupt Handling
+// ============================================================================
+
+// Check if CPU is in protected mode
+bool CPU::isProtectedMode()
+{
+	return (cr0 & CR0_PE) != 0;
+}
+
+// Load a gate descriptor from IDT
+GateDescriptor CPU::loadGateDescriptor(uint8_t vector)
+{
+	// Calculate address in IDT
+	uint32_t idt_entry_addr = idtr.base + (vector * 8);
+
+	// Check if vector is within IDT limit
+	if ((vector * 8 + 7) > idtr.limit)
+	{
+		log(LogVerbose, "[CPU] IDT limit exceeded: vector=%d limit=%04X", vector, idtr.limit);
+		// TODO: Generate #GP exception with IDT selector error code
+		GateDescriptor null_gate;
+		null_gate.raw = 0;
+		return null_gate;
+	}
+
+	// Read 8 bytes of gate descriptor from memory
+	GateDescriptor gate;
+	uint8_t* gate_bytes = (uint8_t*)&gate;
+	for (int i = 0; i < 8; i++)
+	{
+		gate_bytes[i] = vm.memory.readByte(idt_entry_addr + i);
+	}
+
+	return gate;
+}
+
+// Raise an exception (fault or trap)
+void CPU::raiseException(uint8_t vector, uint32_t error_code)
+{
+	log(LogVerbose, "[CPU] Exception #%d at %04X:%04X (error_code=%08X)",
+	    vector, segregs[regcs], ip, error_code);
+
+	// Deliver the exception through the IDT
+	deliverInterrupt(vector, false, error_code);
+
+	// If the exception has an error code, it was already pushed by deliverInterrupt
+}
+
+// Deliver an interrupt or exception through the IDT
+void CPU::deliverInterrupt(uint8_t vector, bool software_int, uint32_t error_code)
+{
+	// Real mode: use IVT (Interrupt Vector Table) at address 0
+	if (!isProtectedMode())
+	{
+		// Real mode interrupt delivery - unchanged from existing intcall86
+		// Just delegate to existing implementation for now
+		intcall86(vector);
+		return;
+	}
+
+	// Protected mode: use IDT
+	GateDescriptor gate = loadGateDescriptor(vector);
+
+	// Check if gate is present
+	if (!gate.isPresent())
+	{
+		log(LogVerbose, "[CPU] Gate not present: vector=%d", vector);
+		// TODO: Generate #NP exception with IDT selector error code
+		// For now, treat as NOP
+		return;
+	}
+
+	// Get Current Privilege Level (CPL)
+	uint8_t cpl = getCurrentPrivilegeLevel();
+
+	// Get gate DPL
+	uint8_t gate_dpl = gate.getDPL();
+
+	// For software interrupts (INT n), check privilege
+	if (software_int)
+	{
+		if (cpl > gate_dpl)
+		{
+			log(LogVerbose, "[CPU] Software interrupt privilege violation: CPL=%d gate_DPL=%d", cpl, gate_dpl);
+			// TODO: Generate #GP exception
+			return;
+		}
+	}
+
+	// Check gate type
+	if (gate.isTaskGate())
+	{
+		// Task gate - perform task switch (stub for now)
+		log(LogVerbose, "[CPU] Task gate encountered (not yet implemented): vector=%d", vector);
+		// TODO: Implement task switching
+		return;
+	}
+
+	if (!gate.isInterruptGate() && !gate.isTrapGate())
+	{
+		log(LogVerbose, "[CPU] Invalid gate type: vector=%d type=%02X", vector, gate.getType());
+		// TODO: Generate #GP exception
+		return;
+	}
+
+	// Get target code segment selector and offset
+	uint16_t target_cs = gate.selector;
+	uint32_t target_offset = gate.getOffset();
+
+	// Load target code segment descriptor
+	SegmentDescriptor target_cs_desc = loadDescriptor(target_cs);
+
+	// Verify target CS is a code segment
+	if (!target_cs_desc.isCode())
+	{
+		log(LogVerbose, "[CPU] Target CS is not a code segment: selector=%04X", target_cs);
+		// TODO: Generate #GP exception
+		return;
+	}
+
+	// Check if target CS is present
+	if (!target_cs_desc.isPresent())
+	{
+		log(LogVerbose, "[CPU] Target CS not present: selector=%04X", target_cs);
+		// TODO: Generate #NP exception
+		return;
+	}
+
+	// Get target DPL
+	uint8_t target_dpl = target_cs_desc.getDPL();
+
+	// Determine if we need to change privilege level
+	bool privilege_change = (target_dpl < cpl);
+
+	// For interrupts/exceptions, target DPL must be <= CPL (more privileged)
+	if (target_dpl > cpl)
+	{
+		log(LogVerbose, "[CPU] Invalid target privilege: target_DPL=%d CPL=%d", target_dpl, cpl);
+		// TODO: Generate #GP exception
+		return;
+	}
+
+	// Save return address
+	uint32_t return_cs = segregs[regcs];
+	uint32_t return_ip = ip;
+	uint32_t return_flags = makeflagsword();
+
+	// If privilege change, we need to load new stack from TSS
+	uint32_t new_esp = 0;
+	uint16_t new_ss = 0;
+
+	if (privilege_change)
+	{
+		log(LogVerbose, "[CPU] Privilege change during interrupt: CPL %d -> %d (stub: using current stack)",
+		    cpl, target_dpl);
+
+		// TODO: Load SS:ESP from TSS for target privilege level
+		// For now, just use current stack (will fail on real privilege transitions)
+		new_esp = regs.wordregs[regsp];
+		new_ss = segregs[regss];
+	}
+
+	// Disable interrupts if this is an interrupt gate
+	if (gate.isInterruptGate())
+	{
+		ifl = 0;  // Clear IF
+	}
+
+	// Switch to new privilege level if needed
+	if (privilege_change)
+	{
+		// Load new SS:ESP (from TSS - stubbed above)
+		segregs[regss] = new_ss;
+		regs.wordregs[regsp] = new_esp;
+
+		// Push old SS:ESP
+		push(segregs[regss]);  // Old SS
+		push(regs.wordregs[regsp]);  // Old ESP
+	}
+
+	// Push EFLAGS/FLAGS, CS, EIP/IP
+	if (gate.is32Bit())
+	{
+		// 32-bit gate: push 32-bit values
+		// TODO: Implement 32-bit push operations
+		// For now, fall back to 16-bit
+		push(return_flags);
+		push(return_cs);
+		push(return_ip);
+	}
+	else
+	{
+		// 16-bit gate: push 16-bit values
+		push(return_flags);
+		push(return_cs);
+		push(return_ip);
+	}
+
+	// If exception has error code, push it
+	if (exceptionHasErrorCode(vector))
+	{
+		// Error code was passed as parameter to raiseException
+		// For now, we don't actually push it (needs to be stored somewhere)
+		// TODO: Store error code and push it here
+		log(LogVerbose, "[CPU] Exception has error code: %08X (not pushed - stub)", error_code);
+	}
+
+	// Load new CS:IP
+	segregs[regcs] = target_cs;
+	ip = target_offset & 0xFFFF;  // Truncate to 16 bits for now
+
+	// Update segment cache for CS
+	seg_cache[regcs].descriptor = target_cs_desc;
+	seg_cache[regcs].base = target_cs_desc.getBase();
+	seg_cache[regcs].limit = target_cs_desc.getLimit();
+	seg_cache[regcs].valid = true;
+
+	// Clear TF (trap flag) on interrupt/exception
+	tf = 0;
+
+	log(LogVerbose, "[CPU] Interrupt delivered: vector=%d new_CS:IP=%04X:%04X",
+	    vector, segregs[regcs], ip);
+}
+
 #endif // CPU_386
 
 CPU::CPU(VM& inVM)

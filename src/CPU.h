@@ -27,6 +27,7 @@
 #ifdef CPU_386
 #include "Segmentation.h"
 #include "Paging.h"
+#include "Exceptions.h"
 #endif
 
 namespace Faux86
@@ -138,6 +139,12 @@ namespace Faux86
 		void flushTLB();
 		void flushTLBEntry(uint32_t linear_addr);
 		bool isPagingEnabled();
+
+		// Exception/Interrupt handling methods
+		GateDescriptor loadGateDescriptor(uint8_t vector);
+		void raiseException(uint8_t vector, uint32_t error_code = 0);
+		void deliverInterrupt(uint8_t vector, bool software_int = false, uint32_t error_code = 0);
+		bool isProtectedMode();
 
 #endif // CPU_386
 		
