@@ -7,7 +7,13 @@ using namespace Faux86;
 Debugger::Debugger(VM& inVM) : vm(inVM)
 {
 	log(Log,"[DEBUGGER] Constructed");
-	MemUtils::memset(memFlags, 0, DEFAULT_RAM_SIZE * sizeof(uint32_t));
+	memFlags = new uint32_t[vm.config.ramSize];
+	MemUtils::memset(memFlags, 0, vm.config.ramSize * sizeof(uint32_t));
+}
+
+Debugger::~Debugger()
+{
+	delete[] memFlags;
 }
 
 bool Debugger::shouldBreakOnExecute(uint32_t address)

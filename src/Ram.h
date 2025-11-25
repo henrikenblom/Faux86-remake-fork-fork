@@ -25,8 +25,16 @@
 #include "Config.h"
 #include "Types.h"
 
-#define MEMORY_RANGE		0x100000
-#define MEMORY_MASK			0x0FFFFF
+// Memory range and mask for i386 support
+// Original: 1MB (0x100000, mask 0x0FFFFF)
+// i386: 32MB (0x2000000, mask 0x1FFFFFF)
+#ifdef CPU_386
+#define MEMORY_RANGE		0x2000000  // 32MB
+#define MEMORY_MASK			0x1FFFFFF  // 32MB mask
+#else
+#define MEMORY_RANGE		0x100000   // 1MB
+#define MEMORY_MASK			0x0FFFFF   // 1MB mask
+#endif
 
 namespace Faux86
 {

@@ -117,8 +117,15 @@
 #define HOST_WINDOW_WIDTH			640
 #define HOST_WINDOW_HEIGHT		350
 
-#define DEFAULT_RAM_SIZE 0x100000
-//#define DEFAULT_RAM_SIZE 0x200000
+// Memory size for i386 Windows 95 support
+// 0x100000 = 1MB (original 8086)
+// 0x1000000 = 16MB (Windows 95 minimum recommended)
+// 0x2000000 = 32MB (Windows 95 good performance)
+#ifdef CPU_386
+#define DEFAULT_RAM_SIZE 0x2000000  // 32MB for Windows 95
+#else
+#define DEFAULT_RAM_SIZE 0x100000   // 1MB for real mode
+#endif
 						 
 //#define DEBUG_BLASTER
 //#define DEBUG_DMA

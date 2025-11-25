@@ -169,7 +169,9 @@ bool VM::init()
 	}
 
 	uint32_t biosSize = (uint32_t) config.biosFile->getSize();
-	memory.loadBinary((uint32_t)(DEFAULT_RAM_SIZE - biosSize), config.biosFile, 1, MemArea_BIOS);
+	// BIOS is always loaded at the top of the first megabyte (0x100000 - biosSize)
+	// regardless of total system RAM, to maintain PC compatibility
+	memory.loadBinary((uint32_t)(0x100000 - biosSize), config.biosFile, 1, MemArea_BIOS);
 
 	//memory.loadBinary(0xA0000UL, config.asciiFile, 1);
 

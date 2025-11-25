@@ -20,6 +20,7 @@ namespace Faux86
 	{
 	public:
 		Debugger(VM& inVM);
+		~Debugger();
 
 		bool isDebugging = false;
 
@@ -49,7 +50,7 @@ namespace Faux86
 
 		VM& vm;
 
-		uint32_t memFlags[DEFAULT_RAM_SIZE];
+		uint32_t* memFlags;  // Dynamically allocated based on actual RAM size
 
 		static constexpr int MaxCallStackSize = 32;
 		uint32_t callStack[MaxCallStackSize];
