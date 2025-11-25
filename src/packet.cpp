@@ -38,7 +38,7 @@
 #define PCAP_OPENFLAG_PROMISCUOUS 1
 #endif
 
-#include "ram.h"
+#include "Ram.h"
 #include "i8259.h"
 
 extern uint8_t verbose;

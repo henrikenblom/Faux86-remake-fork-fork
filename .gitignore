@@ -1,0 +1,15 @@
+# Build artifacts
+*.o
+*.d
+*.elf
+*.lst
+*.map
+
+# Kernel images (keep prebuilt)
+pi/kernel7.img
+pi/kernel8-32.img
+!pi/bin/kernel7.img
+!pi/bin/kernel8-32.img
+
+# Temporary files
+own_cpp.txt

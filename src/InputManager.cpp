@@ -23,10 +23,10 @@
 
 #include "VM.h"
 #include "SerialMouse.h"
-#include "ports.h"
-#include "cpu.h"
+#include "Ports.h"
+#include "CPU.h"
 #include "SerialMouse.h"
-#include "video.h"
+#include "Video.h"
 
 using namespace Faux86;
 

@@ -27,8 +27,8 @@
 
 #include "VM.h"
 #include "Ports.h"
-#include "cpu.h"
-#include "audio.h"
+#include "CPU.h"
+#include "Audio.h"
 
 using namespace Faux86;
 

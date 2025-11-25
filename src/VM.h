@@ -24,7 +24,7 @@
 
 #include "Config.h"
 #include "CPU.h"
-#include "RAM.h"
+#include "Ram.h"
 #include "PIT.h"
 #include "Ports.h"
 #include "PIC.h"
