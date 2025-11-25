@@ -3610,6 +3610,131 @@ skipexecution:
 
 #ifdef CPU_386
 // ============================================================================
+// i386 32-bit Addressing and Memory Access
+// ============================================================================
+
+// Calculate 32-bit effective address using SIB byte
+void CPU::getea32(uint8_t rmval)
+{
+	uint32_t tempea = 0;
+
+	if (mode == 3)
+	{
+		// Register direct mode - no EA calculation needed
+		return;
+	}
+
+	if (sib_used)
+	{
+		// SIB byte was decoded
+		uint32_t base_val = 0;
+		uint32_t index_val = 0;
+
+		// Get base register value
+		if (mode == 0 && sib_base == 5)
+		{
+			// No base, use disp32
+			base_val = 0;
+		}
+		else
+		{
+			base_val = getreg32(sib_base);
+		}
+
+		// Get index register value (ESP cannot be index)
+		if (sib_index == 4)
+		{
+			index_val = 0;  // No index
+		}
+		else
+		{
+			index_val = getreg32(sib_index);
+		}
+
+		// Calculate: base + (index * scale) + displacement
+		uint32_t scale = 1 << sib_scale;  // Scale is 2^(sib_scale)
+		tempea = base_val + (index_val * scale) + disp32;
+	}
+	else
+	{
+		// No SIB byte
+		if (mode == 0)
+		{
+			if (rmval == 5)
+			{
+				// [disp32] only
+				tempea = disp32;
+			}
+			else
+			{
+				// [register]
+				tempea = getreg32(rmval);
+			}
+		}
+		else
+		{
+			// mode 1 or 2: [register] + disp
+			tempea = getreg32(rmval) + disp32;
+		}
+	}
+
+	ea = tempea;
+}
+
+// Read 32-bit value from register or memory
+uint32_t CPU::readrm32(uint8_t rmval)
+{
+	if (mode < 3)
+	{
+		// Memory operand
+		getea32(rmval);
+		uint32_t linear_addr = segmentTranslate(useseg, ea);
+		return vm.memory.readDword(linear_addr);
+	}
+	else
+	{
+		// Register operand
+		return getreg32(rmval);
+	}
+}
+
+// Write 32-bit value to register or memory
+void CPU::writerm32(uint8_t rmval, uint32_t value)
+{
+	if (mode < 3)
+	{
+		// Memory operand
+		getea32(rmval);
+		uint32_t linear_addr = segmentTranslate(useseg, ea);
+		vm.memory.writeDword(linear_addr, value);
+	}
+	else
+	{
+		// Register operand
+		putreg32(rmval, value);
+	}
+}
+
+// Push 32-bit value onto stack
+void CPU::push32(uint32_t value)
+{
+	getreg32(regsp) -= 4;
+	uint32_t sp_val = getreg32(regsp);
+	uint32_t linear_addr = segmentTranslate(regss, sp_val);
+	vm.memory.writeDword(linear_addr, value);
+}
+
+// Pop 32-bit value from stack
+uint32_t CPU::pop32()
+{
+	uint32_t sp_val = getreg32(regsp);
+	uint32_t linear_addr = segmentTranslate(regss, sp_val);
+	uint32_t value = vm.memory.readDword(linear_addr);
+	getreg32(regsp) += 4;
+	return value;
+}
+
+// ============================================================================
 // i386 Protected Mode Segmentation Support
 // ============================================================================
 

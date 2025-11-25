@@ -138,6 +138,14 @@ namespace Faux86
 		void writerm16(uint8_t rmval, uint16_t value);
 		void writerm8(uint8_t rmval, uint8_t value);
 
+#ifdef CPU_386
+		void getea32(uint8_t rmval);
+		uint32_t readrm32(uint8_t rmval);
+		void writerm32(uint8_t rmval, uint32_t value);
+		uint32_t pop32();
+		void push32(uint32_t pushval);
+#endif
+
 		uint8_t op_grp2_8(uint8_t cnt);
 		uint16_t op_grp2_16(uint8_t cnt);
 		void op_grp3_8();
@@ -190,6 +198,13 @@ namespace Faux86
 		uint32_t temp1 = 0, temp2 = 0, temp3 = 0, temp4 = 0, temp5 = 0, temp32 = 0, ea = 0;
 		int32_t	result = 0;
 		uint8_t didintr = 0;
+
+#ifdef CPU_386
+		// 32-bit addressing mode variables
+		uint8_t sib = 0, sib_scale = 0, sib_index = 0, sib_base = 0, sib_used = 0;
+		uint32_t disp32 = 0;
+		uint32_t oper1_32 = 0, oper2_32 = 0, res32 = 0;
+#endif
 
 		uint8_t	debugmode = 0, showcsip = 0, mouseemu = 0;
 
