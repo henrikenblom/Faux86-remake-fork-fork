@@ -48,9 +48,9 @@
 //you will likely get some unexpected/bad results!
 //#define CPU_8086
 //#define CPU_186
-#define CPU_V20
+//#define CPU_V20
 //#define CPU_286
-//#define CPU_386
+#define CPU_386  // i386 emulation enabled for Windows 95 support
 
 #if defined(CPU_8086)
 	#define CPU_CLEAR_ZF_ON_MUL

@@ -44,6 +44,10 @@ namespace Faux86
 		uint8_t readByte(uint32_t addr32);
 		void writeWord(uint32_t addr32, uint16_t value);
 		void writeByte(uint32_t addr32, uint8_t value);
+#ifdef CPU_386
+		uint32_t readDword(uint32_t addr32);
+		void writeDword(uint32_t addr32, uint32_t value);
+#endif
 
 		void memory_mapRegister(uint32_t start, uint32_t len, uint8_t* readb, uint8_t* writeb);
 		void memory_mapCallbackRegister(uint32_t start, uint32_t count, uint8_t(*readb)(void*, uint32_t), void (*writeb)(void*, uint32_t, uint8_t), void* udata);

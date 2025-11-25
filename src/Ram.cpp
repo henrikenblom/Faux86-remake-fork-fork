@@ -131,10 +131,28 @@ uint8_t Memory::readByte(uint32_t addr32)
 	return 0xFF;
 }
 
-uint16_t Memory::readWord(uint32_t addr32) 
+uint16_t Memory::readWord(uint32_t addr32)
 {
 	return ((uint16_t)readByte(addr32) | (uint16_t)(readByte(addr32 + 1) << 8));
 }
+
+#ifdef CPU_386
+uint32_t Memory::readDword(uint32_t addr32)
+{
+	return ((uint32_t)readByte(addr32) |
+	        ((uint32_t)readByte(addr32 + 1) << 8) |
+	        ((uint32_t)readByte(addr32 + 2) << 16) |
+	        ((uint32_t)readByte(addr32 + 3) << 24));
+}
+
+void Memory::writeDword(uint32_t addr32, uint32_t value)
+{
+	writeByte(addr32, (uint8_t)value);
+	writeByte(addr32 + 1, (uint8_t)(value >> 8));
+	writeByte(addr32 + 2, (uint8_t)(value >> 16));
+	writeByte(addr32 + 3, (uint8_t)(value >> 24));
+}
+#endif
 
 uint32_t Memory::loadBinary(uint32_t addr32, DiskInterface* file, uint8_t roflag, uint32_t debugFlags) 
 {

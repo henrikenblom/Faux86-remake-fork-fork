@@ -37,10 +37,15 @@ namespace Faux86
 		void reset86();
 		void exec86(uint32_t execloops);
 
-		union _bytewordregs_ 
+		// Register union supporting 8-bit, 16-bit, and 32-bit access
+		// Layout preserves compatibility: AL/AH/AX overlap with EAX low bits
+		union _bytewordregs_
 		{
-			uint16_t wordregs[8];
-			uint8_t byteregs[8];
+#ifdef CPU_386
+			uint32_t dwordregs[8];  // EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI
+#endif
+			uint16_t wordregs[8];   // AX, CX, DX, BX, SP, BP, SI, DI
+			uint8_t byteregs[8];    // AL, CL, DL, BL, AH, CH, DH, BH (endian-dependent)
 		} regs;
 
 		uint8_t cf = 0;
@@ -50,6 +55,56 @@ namespace Faux86
 		uint8_t ethif = 0;
 		uint64_t totalexec = 0;
 		uint8_t didbootstrap = 0;
+
+#ifdef CPU_386
+		// i386-specific registers and state
+
+		// CPU Mode
+		enum CPUMode {
+			MODE_REAL,           // Real mode (8086 compatible)
+			MODE_PROTECTED,      // Protected mode
+			MODE_VIRTUAL_8086    // Virtual 8086 mode (within protected mode)
+		};
+		CPUMode cpu_mode = MODE_REAL;
+
+		// Control Registers
+		uint32_t cr0 = 0;    // Control Register 0 (PE, PG, etc.)
+		uint32_t cr2 = 0;    // Page Fault Linear Address
+		uint32_t cr3 = 0;    // Page Directory Base Register
+		uint32_t cr4 = 0;    // Control Register 4 (reserved for 486+)
+
+		// Debug Registers (DR0-DR7)
+		uint32_t dr[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+		// Test Registers (TR6, TR7 - for TLB testing)
+		uint32_t tr[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+		// Extended Instruction Pointer
+		uint32_t eip = 0;    // 32-bit instruction pointer (ip is low 16 bits)
+
+		// Extended FLAGS
+		uint32_t eflags = 0; // 32-bit flags register
+
+		// Descriptor Table Registers
+		struct {
+			uint32_t base = 0;
+			uint16_t limit = 0;
+		} gdtr, idtr;        // Global/Interrupt Descriptor Table Registers
+
+		// Local Descriptor Table Register
+		uint16_t ldtr = 0;
+
+		// Task Register
+		uint16_t tr_reg = 0;
+
+		// Additional Segment Registers (FS, GS)
+		uint16_t segregs_ext[2] = {0, 0}; // FS, GS
+
+		// Prefix flags for instruction decoding
+		uint8_t operand_size_32 = 0;  // 0x66 prefix flag
+		uint8_t address_size_32 = 0;  // 0x67 prefix flag
+
+#endif // CPU_386
 		
 	private:
 		void getea(uint8_t rmval);
