@@ -3581,7 +3581,235 @@ void CPU::exec86 (uint32_t execloops)
 							}
 						break;
 
-					case 0xFF:	/* FF GRP5 Ev */
+	#ifdef CPU_386
+				case 0x0F:	/* 0F Extended opcode (386+) */
+					{
+						// Read second byte of opcode
+						uint8_t opcode2 = getmem8(segregs[regcs], ip);
+						StepIP(1);
+
+						switch (opcode2) {
+							case 0x00:	/* 0F 00 - Group 6 */
+								modregrm();
+								switch (reg) {
+									case 0:	/* SLDT - Store Local Descriptor Table Register */
+										log(LogVerbose, "[CPU] SLDT at %04X:%04X", savecs, saveip);
+										writerm16(rm, ldtr);
+										break;
+
+									case 1:	/* STR - Store Task Register */
+										log(LogVerbose, "[CPU] STR at %04X:%04X", savecs, saveip);
+										writerm16(rm, tr_reg);
+										break;
+
+									case 2:	/* LLDT - Load Local Descriptor Table Register */
+										{
+											uint16_t selector = readrm16(rm);
+											log(LogVerbose, "[CPU] LLDT selector=%04X at %04X:%04X",
+												selector, savecs, saveip);
+											ldtr = selector;
+											// Full descriptor loading deferred to Phase 6
+										}
+										break;
+
+									case 3:	/* LTR - Load Task Register */
+										{
+											uint16_t selector = readrm16(rm);
+											log(LogVerbose, "[CPU] LTR selector=%04X at %04X:%04X",
+												selector, savecs, saveip);
+											tr_reg = selector;
+											// Full TSS loading deferred to Phase 6
+										}
+										break;
+
+									default:
+										log(LogError, "[CPU] Invalid Group 6 instruction, reg=%d at %04X:%04X",
+											reg, savecs, saveip);
+										break;
+								}
+								break;
+
+							case 0x01:	/* 0F 01 - Group 7 */
+								modregrm();
+								switch (reg) {
+									case 0:	/* SGDT - Store Global Descriptor Table Register */
+										{
+											log(LogVerbose, "[CPU] SGDT at %04X:%04X", savecs, saveip);
+											uint32_t addr = segmentTranslate(useseg, ea);
+											vm.memory.writeWord(addr, gdtr.limit);
+											vm.memory.writeDword(addr + 2, gdtr.base);
+										}
+										break;
+
+									case 1:	/* SIDT - Store Interrupt Descriptor Table Register */
+										{
+											log(LogVerbose, "[CPU] SIDT at %04X:%04X", savecs, saveip);
+											uint32_t addr = segmentTranslate(useseg, ea);
+											vm.memory.writeWord(addr, idtr.limit);
+											vm.memory.writeDword(addr + 2, idtr.base);
+										}
+										break;
+
+									case 2:	/* LGDT - Load Global Descriptor Table Register */
+										{
+											log(LogVerbose, "[CPU] LGDT at %04X:%04X", savecs, saveip);
+											uint32_t addr = segmentTranslate(useseg, ea);
+											gdtr.limit = vm.memory.readWord(addr);
+											gdtr.base = vm.memory.readDword(addr + 2);
+											log(LogVerbose, "[CPU] GDTR: base=%08X limit=%04X",
+												gdtr.base, gdtr.limit);
+										}
+										break;
+
+									case 3:	/* LIDT - Load Interrupt Descriptor Table Register */
+										{
+											log(LogVerbose, "[CPU] LIDT at %04X:%04X", savecs, saveip);
+											uint32_t addr = segmentTranslate(useseg, ea);
+											idtr.limit = vm.memory.readWord(addr);
+											idtr.base = vm.memory.readDword(addr + 2);
+											log(LogVerbose, "[CPU] IDTR: base=%08X limit=%04X",
+												idtr.base, idtr.limit);
+										}
+										break;
+
+									default:
+										log(LogError, "[CPU] Invalid Group 7 instruction, reg=%d at %04X:%04X",
+											reg, savecs, saveip);
+										break;
+								}
+								break;
+
+							case 0x06:	/* CLTS - Clear Task Switched Flag */
+								log(LogVerbose, "[CPU] CLTS at %04X:%04X", savecs, saveip);
+								cr0 &= ~CR0_TS;
+								break;
+
+							case 0x20:	/* MOV reg, CRn - Read control register */
+								{
+									modregrm();
+									uint32_t value = 0;
+									switch (reg) {
+										case 0: value = cr0; break;
+										case 2: value = cr2; break;
+										case 3: value = cr3; break;
+										case 4: value = cr4; break;
+										default:
+											log(LogError, "[CPU] Invalid control register CR%d at %04X:%04X",
+												reg, savecs, saveip);
+											break;
+									}
+
+									if (operand_size_32) {
+										regs.dwordregs[rm] = value;
+										log(LogVerbose, "[CPU] MOV R%d, CR%d (value=%08X) at %04X:%04X",
+											rm, reg, value, savecs, saveip);
+									} else {
+										putreg16(rm, value & 0xFFFF);
+										log(LogVerbose, "[CPU] MOV R%d, CR%d (value=%04X) at %04X:%04X",
+											rm, reg, value & 0xFFFF, savecs, saveip);
+									}
+								}
+								break;
+
+							case 0x21:	/* MOV reg, DRn - Read debug register */
+								{
+									modregrm();
+									log(LogVerbose, "[CPU] MOV R%d, DR%d at %04X:%04X (stubbed)",
+										rm, reg, savecs, saveip);
+									// Debug registers stubbed - set to 0 for now
+									if (operand_size_32) {
+										regs.dwordregs[rm] = 0;
+									} else {
+										putreg16(rm, 0);
+									}
+								}
+								break;
+
+							case 0x22:	/* MOV CRn, reg - Write control register */
+								{
+									modregrm();
+									uint32_t value;
+									if (operand_size_32) {
+										value = regs.dwordregs[rm];
+									} else {
+										value = getreg16(rm);
+									}
+
+									switch (reg) {
+										case 0:	// CR0
+											{
+												uint32_t old_cr0 = cr0;
+												cr0 = value;
+												log(LogVerbose, "[CPU] MOV CR0, R%d (value=%08X) at %04X:%04X",
+													rm, value, savecs, saveip);
+
+												// Check for protected mode transition
+												if ((old_cr0 & CR0_PE) != (cr0 & CR0_PE)) {
+													log(LogVerbose, "[CPU] Protected mode %s",
+														(cr0 & CR0_PE) ? "enabled" : "disabled");
+												}
+
+												// Check for paging transition
+												if ((old_cr0 & CR0_PG) != (cr0 & CR0_PG)) {
+													log(LogVerbose, "[CPU] Paging %s",
+														(cr0 & CR0_PG) ? "enabled" : "disabled");
+													flushTLB();
+												}
+											}
+											break;
+
+										case 2:	// CR2 - Page Fault Linear Address
+											cr2 = value;
+											log(LogVerbose, "[CPU] MOV CR2, R%d (value=%08X) at %04X:%04X",
+												rm, value, savecs, saveip);
+											break;
+
+										case 3:	// CR3 - Page Directory Base
+											cr3 = value;
+											log(LogVerbose, "[CPU] MOV CR3, R%d (value=%08X) at %04X:%04X",
+												rm, value, savecs, saveip);
+											flushTLB();
+											break;
+
+										case 4:	// CR4 - (486+)
+											cr4 = value;
+											log(LogVerbose, "[CPU] MOV CR4, R%d (value=%08X) at %04X:%04X",
+												rm, value, savecs, saveip);
+											break;
+
+										default:
+											log(LogError, "[CPU] Invalid control register CR%d at %04X:%04X",
+												reg, savecs, saveip);
+											break;
+									}
+								}
+								break;
+
+							case 0x23:	/* MOV DRn, reg - Write debug register */
+								{
+									modregrm();
+									uint32_t value;
+									if (operand_size_32) {
+										value = regs.dwordregs[rm];
+									} else {
+										value = getreg16(rm);
+									}
+									log(LogVerbose, "[CPU] MOV DR%d, R%d (value=%08X) at %04X:%04X (stubbed)",
+										reg, rm, value, savecs, saveip);
+									// Debug registers stubbed - ignore writes for now
+								}
+								break;
+
+							default:
+								log(LogError, "[CPU] Unimplemented 0x0F opcode: %02X at %04X:%04X",
+									opcode2, savecs, saveip);
+								break;
+						}
+					}
+					break;
+#endif  // CPU_386
+
+				case 0xFF:	/* FF GRP5 Ev */
 						modregrm();
 						oper1 = readrm16 (rm);
 						op_grp5();
