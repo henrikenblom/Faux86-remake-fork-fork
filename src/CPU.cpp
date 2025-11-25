@@ -3608,6 +3608,205 @@ skipexecution:
 }
 #endif
 
+#ifdef CPU_386
+// ============================================================================
+// i386 Protected Mode Segmentation Support
+// ============================================================================
+
+// Load a descriptor from GDT or LDT
+SegmentDescriptor CPU::loadDescriptor(uint16_t selector)
+{
+	Selector sel;
+	sel.value = selector;
+
+	// Determine which table to use (GDT or LDT)
+	uint32_t table_base;
+	if (sel.isTI())
+	{
+		// LDT - load from LDT register (stub for now)
+		table_base = 0;  // TODO: Implement LDT support
+		log(LogVerbose, "[CPU] WARNING: LDT access not yet implemented");
+	}
+	else
+	{
+		// GDT
+		table_base = gdtr.base;
+	}
+
+	// Calculate descriptor address
+	uint32_t descriptor_addr = table_base + (sel.getIndex() * 8);
+
+	// Read 8 bytes of descriptor from memory
+	SegmentDescriptor desc;
+	uint8_t* desc_bytes = (uint8_t*)&desc;
+	for (int i = 0; i < 8; i++)
+	{
+		desc_bytes[i] = vm.memory.readByte(descriptor_addr + i);
+	}
+
+	return desc;
+}
+
+// Load a segment register in protected mode
+void CPU::loadSegmentRegister(uint8_t seg, uint16_t selector)
+{
+	// Real mode: simple assignment
+	if (cpu_mode == MODE_REAL)
+	{
+		if (seg < 4)
+		{
+			segregs[seg] = selector;
+			seg_cache[seg].base = selector << 4;
+			seg_cache[seg].limit = 0xFFFF;
+			seg_cache[seg].valid = true;
+		}
+		else
+		{
+			// FS, GS
+			segregs_ext[seg - 4] = selector;
+			seg_cache[seg].base = selector << 4;
+			seg_cache[seg].limit = 0xFFFF;
+			seg_cache[seg].valid = true;
+		}
+		return;
+	}
+
+	// Protected mode: load descriptor and check privileges
+	SegmentDescriptor desc = loadDescriptor(selector);
+
+	// Check if present
+	if (!desc.isPresent())
+	{
+		// Generate #NP (segment not present) exception
+		log(LogVerbose, "[CPU] Segment not present: %04X", selector);
+		// TODO: Implement exception delivery
+		return;
+	}
+
+	// Store selector
+	if (seg < 4)
+	{
+		segregs[seg] = selector;
+	}
+	else
+	{
+		segregs_ext[seg - 4] = selector;
+	}
+
+	// Update segment cache
+	seg_cache[seg].descriptor = desc;
+	seg_cache[seg].base = desc.getBase();
+	seg_cache[seg].limit = desc.getLimit();
+	seg_cache[seg].valid = true;
+}
+
+// Get segment base address
+uint32_t CPU::getSegmentBase(uint8_t seg)
+{
+	if (cpu_mode == MODE_REAL)
+	{
+		// Real mode
+		if (seg < 4)
+		{
+			return segregs[seg] << 4;
+		}
+		else
+		{
+			return segregs_ext[seg - 4] << 4;
+		}
+	}
+
+	// Protected mode - use cached base
+	if (!seg_cache[seg].valid)
+	{
+		// Reload segment
+		uint16_t selector = (seg < 4) ? segregs[seg] : segregs_ext[seg - 4];
+		loadSegmentRegister(seg, selector);
+	}
+
+	return seg_cache[seg].base;
+}
+
+// Get segment limit
+uint32_t CPU::getSegmentLimit(uint8_t seg)
+{
+	if (cpu_mode == MODE_REAL)
+	{
+		return 0xFFFF;  // 64KB limit in real mode
+	}
+
+	// Protected mode - use cached limit
+	if (!seg_cache[seg].valid)
+	{
+		// Reload segment
+		uint16_t selector = (seg < 4) ? segregs[seg] : segregs_ext[seg - 4];
+		loadSegmentRegister(seg, selector);
+	}
+
+	return seg_cache[seg].limit;
+}
+
+// Check if memory access is within segment limits
+bool CPU::checkSegmentAccess(uint8_t seg, uint32_t offset, bool write)
+{
+	if (cpu_mode == MODE_REAL)
+	{
+		return true;  // No limit checking in real mode
+	}
+
+	// Check limit
+	uint32_t limit = getSegmentLimit(seg);
+	if (offset > limit)
+	{
+		log(LogVerbose, "[CPU] Segment limit exceeded: offset=%08X limit=%08X", offset, limit);
+		// TODO: Generate #GP exception
+		return false;
+	}
+
+	// Check write permission for data segments
+	if (write && seg_cache[seg].descriptor.isData() && !seg_cache[seg].descriptor.isWritable())
+	{
+		log(LogVerbose, "[CPU] Write to read-only segment");
+		// TODO: Generate #GP exception
+		return false;
+	}
+
+	return true;
+}
+
+// Translate segment:offset to linear address
+uint32_t CPU::segmentTranslate(uint8_t seg, uint32_t offset)
+{
+	if (cpu_mode == MODE_REAL)
+	{
+		// Real mode: segment * 16 + offset
+		uint32_t base = (seg < 4) ? (segregs[seg] << 4) : (segregs_ext[seg - 4] << 4);
+		return (base + (offset & 0xFFFF)) & 0xFFFFF;  // Wrap at 1MB
+	}
+
+	// Protected mode
+	uint32_t base = getSegmentBase(seg);
+
+	// Check segment access (limit and permissions)
+	checkSegmentAccess(seg, offset, false);
+
+	return base + offset;
+}
+
+// Get Current Privilege Level (CPL) from CS selector
+uint8_t CPU::getCurrentPrivilegeLevel()
+{
+	if (cpu_mode == MODE_REAL)
+	{
+		return 0;  // Always ring 0 in real mode
+	}
+
+	// CPL is bits 0-1 of CS selector
+	return segregs[regcs] & 3;
+}
+
+#endif // CPU_386
+
 CPU::CPU(VM& inVM)
 	: vm(inVM)
 {

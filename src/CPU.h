@@ -24,6 +24,9 @@
 #pragma once
 #include "Types.h"
 #include "CPUMacros.h"
+#ifdef CPU_386
+#include "Segmentation.h"
+#endif
 
 namespace Faux86
 {
@@ -100,9 +103,28 @@ namespace Faux86
 		// Additional Segment Registers (FS, GS)
 		uint16_t segregs_ext[2] = {0, 0}; // FS, GS
 
+		// Segment Caches (hidden part of segment registers)
+		// Index 0-3: ES, CS, SS, DS
+		// Index 4-5: FS, GS
+		struct {
+			SegmentDescriptor descriptor;
+			uint32_t base;
+			uint32_t limit;
+			bool valid;
+		} seg_cache[6];
+
 		// Prefix flags for instruction decoding
 		uint8_t operand_size_32 = 0;  // 0x66 prefix flag
 		uint8_t address_size_32 = 0;  // 0x67 prefix flag
+
+		// Protected mode segment management methods
+		SegmentDescriptor loadDescriptor(uint16_t selector);
+		void loadSegmentRegister(uint8_t seg, uint16_t selector);
+		uint32_t getSegmentBase(uint8_t seg);
+		uint32_t getSegmentLimit(uint8_t seg);
+		bool checkSegmentAccess(uint8_t seg, uint32_t offset, bool write);
+		uint32_t segmentTranslate(uint8_t seg, uint32_t offset);
+		uint8_t getCurrentPrivilegeLevel();
 
 #endif // CPU_386
 		
