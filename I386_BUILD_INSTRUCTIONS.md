@@ -3,10 +3,11 @@
 ## ✅ Build Successfully Completed
 
 **Date:** 2025-11-26
-**Kernel:** `pi/kernel8-32.img` (476 KB / 487,276 bytes)
+**Kernel:** `pi/kernel8-32.img` (477 KB / 488,164 bytes)
 **Branch:** feature/i386-support
 **Status:** Ready for deployment
 **CPU Mode:** Automatically set to i386 (Cpu386)
+**MD5:** 8e4f6eff468a446e158009d913732932
 
 ## What Changed
 
@@ -23,8 +24,8 @@
 ### 3. Kernel Rebuilt
 - **File:** `pi/kernel8-32.img`
 - **Old size:** 472,460 bytes (461 KB) - 8086/286 mode
-- **New size:** 487,276 bytes (476 KB) - i386 mode
-- **Increase:** +14,816 bytes of i386 code
+- **New size:** 488,164 bytes (477 KB) - i386 mode with INT 15h BIOS interception
+- **Increase:** +15,704 bytes of i386 code
 
 ## Features Enabled in New Kernel
 
