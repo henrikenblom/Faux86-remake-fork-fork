@@ -1,6 +1,20 @@
-# Using SeaBIOS for i386 Support
+# ⚠️ OBSOLETE - SeaBIOS NOT Required
 
-## Problem
+**This document is obsolete as of 2025-11-26.**
+
+## ✅ Better Solution Available
+
+**You do NOT need SeaBIOS anymore!**
+
+The emulator now directly intercepts INT 15h BIOS calls and provides i386 memory information, making SeaBIOS completely unnecessary.
+
+👉 **See [NO_SEABIOS_NEEDED.md](NO_SEABIOS_NEEDED.md) for the current solution.**
+
+---
+
+# Original Document (Kept for Reference)
+
+## Problem (SOLVED)
 
 The default `pcxtbios.bin` is an IBM PC/XT BIOS that:
 - Only recognizes 8086/V20 CPUs
@@ -12,7 +26,7 @@ This causes:
 - HIMEM.SYS fails to load
 - Windows 95 can't access extended memory
 
-## Solution: Use SeaBIOS
+## Old Solution: Use SeaBIOS (NO LONGER NEEDED)
 
 SeaBIOS is an open-source BIOS that:
 - Supports i386 CPU detection
