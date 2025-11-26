@@ -102,8 +102,8 @@ include ./Config.mk
 # CPPFLAGS = -I$(SRCDIR) -Wall -Werror -Wfatal-errors -Wno-unused-variable -O3
 # CFLAGS = -I$(SRCDIR) -Wall -Werror -Wfatal-errors -Wno-unused-variable -O3
 
-CPPFLAGS = -I$(SRCDIR) -Wall -Wfatal-errors -Wno-unused-variable -Wno-maybe-uninitialized -Wno-unused-but-set-variable -Os
-CFLAGS = -I$(SRCDIR) -Wall -Wfatal-errors -Wno-unused-variable -Wno-maybe-uninitialized -Wno-unused-but-set-variable -Os
+CPPFLAGS = -I$(SRCDIR) -Wall -Wfatal-errors -Wno-unused-variable -Wno-maybe-uninitialized -Wno-unused-but-set-variable -Os -DCPU_386
+CFLAGS = -I$(SRCDIR) -Wall -Wfatal-errors -Wno-unused-variable -Wno-maybe-uninitialized -Wno-unused-but-set-variable -Os -DCPU_386
 
 ifeq ($(strip $(RASPPI)),1)
 CPPFLAGS += -marm -mcpu=arm1176jzf-s -mfloat-abi=hard -mfpu=vfp -mtune=arm1176jzf-s
