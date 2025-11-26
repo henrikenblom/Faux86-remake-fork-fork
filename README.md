@@ -9,8 +9,9 @@ A portable, open-source 8086/i386 Emulator for Win32 and bare metal ARM Raspberr
 - 32-bit protected mode with paging and segmentation
 - 32MB RAM for Windows 95 compatibility
 - All critical i386 instructions implemented
-- INT 15h BIOS memory detection (no SeaBIOS needed)
+- **Requires SeaBIOS for A20 gate control** (see [SEABIOS_SETUP.md](SEABIOS_SETUP.md))
 - Ready for Windows 95 boot testing
+- Quick start: Run `./setup_seabios.sh` then copy pi/ to SD card
 - See [I386_BUILD_INSTRUCTIONS.md](I386_BUILD_INSTRUCTIONS.md) and [I386_IMPLEMENTATION_STATUS.md](I386_IMPLEMENTATION_STATUS.md) for details
 
 11-07-2023 Release build v1.2 for 32/64Bit Windows
@@ -45,9 +46,9 @@ Faux86-remake is still work in progress but fixes many issues and adds more feat
 - 8086, V20, 80186, 286, and **i386 (80386)** instruction set.
 - **32-bit protected mode** with paging, segmentation, and task switching (i386).
 - **32MB RAM support** for Windows 95 compatibility (i386).
+- **SeaBIOS support** for A20 gate control and complete i386 BIOS functionality.
 - Configurable CPU speeds from 5Mhz upto 100Mhz.
-- Custom Hardware BIOS's supported.
-- **INT 15h BIOS memory detection** (no SeaBIOS required for i386).
+- Custom Hardware BIOS's supported (pcxtbios.bin for 8086, SeaBIOS for i386).
 - Supports bootable disk images in .img and .raw file format.
 - CGA / EGA / VGA Colour Video emulation with most modes supported.
 - PC Speaker, Adlib, Soundblaster and Disney SoundSource.
