@@ -180,7 +180,11 @@ namespace Faux86
 		uint32_t ramSize = DEFAULT_RAM_SIZE;
 		//CpuType cpuType = CpuType::Cpu286;
 		//CpuType cpuType = CpuType::Cpu186;
-		CpuType cpuType = CpuType::CpuV20;
+#ifdef CPU_386
+		CpuType cpuType = CpuType::Cpu386;  // i386 mode for Windows 95
+#else
+		CpuType cpuType = CpuType::CpuV20;  // V20 for legacy builds
+#endif
 
 		DiskInterface* biosFile = nullptr;
 		DiskInterface* ideRomFile = nullptr;
