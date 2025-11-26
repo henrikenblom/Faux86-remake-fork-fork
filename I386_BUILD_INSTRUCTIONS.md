@@ -3,9 +3,10 @@
 ## ✅ Build Successfully Completed
 
 **Date:** 2025-11-26
-**Kernel:** `pi/kernel8-32.img` (476 KB / 487,268 bytes)
+**Kernel:** `pi/kernel8-32.img` (476 KB / 487,276 bytes)
 **Branch:** feature/i386-support
 **Status:** Ready for deployment
+**CPU Mode:** Automatically set to i386 (Cpu386)
 
 ## What Changed
 
@@ -14,11 +15,16 @@
 - **Change:** Added `-DCPU_386` to compiler flags (lines 105-106)
 - **Effect:** Enables all i386 features at compile time
 
-### 2. Kernel Rebuilt
+### 2. CPU Type Default Changed
+- **File:** `src/Config.h`
+- **Change:** Default CPU type now set to Cpu386 when CPU_386 is defined (line 184)
+- **Effect:** Kernel automatically runs in i386 mode (not V20)
+
+### 3. Kernel Rebuilt
 - **File:** `pi/kernel8-32.img`
 - **Old size:** 472,460 bytes (461 KB) - 8086/286 mode
-- **New size:** 487,268 bytes (476 KB) - i386 mode
-- **Increase:** +14,808 bytes of i386 code
+- **New size:** 487,276 bytes (476 KB) - i386 mode
+- **Increase:** +14,816 bytes of i386 code
 
 ## Features Enabled in New Kernel
 
