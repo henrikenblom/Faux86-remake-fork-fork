@@ -11,25 +11,54 @@ This build includes full Intel 80386 (i386) CPU emulation with:
 - 32-bit protected mode (segmentation, paging, privilege levels)
 - 32MB RAM for Windows 95 compatibility
 - All critical i386 instructions (multiply/divide, string ops, bit manipulation)
-- INT 15h BIOS memory detection (no SeaBIOS required!)
+- **Requires SeaBIOS for A20 gate control and memory detection**
 
 ## Quick Deploy (Raspberry Pi 3)
 
-### 1. Prepare SD Card
-```bash
-# Copy the i386-enabled kernel to your SD card boot partition
-cp pi/kernel8-32.img /path/to/sdcard/kernel8-32.img
+### 1. Setup SeaBIOS (Required for A20 Gate Control)
 
-# Use standard XT BIOS (INT 15h interception built into CPU emulator)
-# NO SeaBIOS needed!
-cp data/pcxtbios.bin /path/to/sdcard/pcxtbios.bin
+The default pcxtbios.bin doesn't provide A20 line control, causing "Unable to control A20 line" errors.
+
+**Quick Setup:**
+```bash
+# Run the automated setup script
+./setup_seabios.sh
+
+# This will:
+# - Download SeaBIOS 1.17.0 (256 KB)
+# - Update config to use SeaBIOS
+# - Create backup of original config
 ```
 
-### 2. Verify Files on SD Card
-- ✅ kernel8-32.img (488,164 bytes)
-- ✅ pcxtbios.bin (8,192 bytes - standard XT BIOS)
-- ✅ videorom.bin (if using VGA)
-- ✅ config.txt (Raspberry Pi config)
+**Or Manual Setup:**
+```bash
+# Download SeaBIOS
+cd pi/bin
+wget https://www.seabios.org/downloads/bios.bin-1.17.0.gz
+gunzip bios.bin-1.17.0.gz
+mv bios.bin-1.17.0 seabios.bin
+
+# Update config
+cp faux86-3.cfg faux86-3.cfg.bak
+sed -i 's/biosrom=pcxtbios.bin/biosrom=seabios.bin/' faux86-3.cfg
+```
+
+### 2. Verify Files Are Ready
+```bash
+pi/
+├── kernel8-32.img          (488,164 bytes - i386 kernel)
+└── bin/
+    ├── seabios.bin         (262,144 bytes - BIOS with A20 support)
+    ├── faux86-3.cfg        (biosrom=seabios.bin)
+    ├── videorom.bin        (VGA ROM)
+    └── pcxtbios.bin        (backup, not used)
+```
+
+### 3. Copy to SD Card
+```bash
+# Copy entire pi/ directory to SD card boot partition
+cp -r pi/* /path/to/sdcard/
+```
 
 ### 3. Boot and Test
 1. Insert SD card into Raspberry Pi 3
@@ -67,10 +96,15 @@ Video: VGA
 
 ## Troubleshooting
 
-### "Extended Memory Not Detected"
-- ❌ Old issue with SeaBIOS - now solved!
-- ✅ INT 15h interception built into CPU emulator
-- ✅ HIMEM.SYS should detect memory automatically
+### "Unable to control A20 line"
+- ❌ Caused by using pcxtbios.bin (doesn't support A20 gate)
+- ✅ Solution: Use SeaBIOS (see setup instructions above)
+- The A20 line must be enabled to access memory above 1MB
+
+### "Extended Memory Not Detected" or HIMEM.SYS Fails
+- Make sure you're using SeaBIOS, not pcxtbios.bin
+- Check config: `grep biosrom pi/bin/faux86-3.cfg` should show `biosrom=seabios.bin`
+- Verify SeaBIOS file exists and is 256 KB
 
 ### "Invalid Opcode" or Crashes
 - Check log for unimplemented opcodes

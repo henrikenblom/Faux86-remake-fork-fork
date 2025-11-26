@@ -4,7 +4,7 @@
 # Some settings use 1 = Enable/On and 0 = Disable/Off
 
 # The system main BIOS Rom file
-biosrom=seabios.bin
+biosrom=pcxtbios.bin
 
 # The default boot disk (fd0, fd1, hd0, hd1, rom)
 # fd0 = Boot from floppy 0 (A:).

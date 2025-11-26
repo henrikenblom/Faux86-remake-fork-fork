@@ -1,38 +1,42 @@
-# ⚠️ OBSOLETE - SeaBIOS NOT Required
+# SeaBIOS Setup for i386 Support
 
-**This document is obsolete as of 2025-11-26.**
+**Status:** ✅ RECOMMENDED for i386 builds
+**Updated:** 2025-11-26
 
-## ✅ Better Solution Available
-
-**You do NOT need SeaBIOS anymore!**
-
-The emulator now directly intercepts INT 15h BIOS calls and provides i386 memory information, making SeaBIOS completely unnecessary.
-
-👉 **See [NO_SEABIOS_NEEDED.md](NO_SEABIOS_NEEDED.md) for the current solution.**
-
----
-
-# Original Document (Kept for Reference)
-
-## Problem (SOLVED)
+## Why SeaBIOS is Required for i386
 
 The default `pcxtbios.bin` is an IBM PC/XT BIOS that:
 - Only recognizes 8086/V20 CPUs
+- Doesn't provide **A20 gate control** (critical for extended memory!)
 - Doesn't report extended memory beyond 1MB
 - Can't support HIMEM.SYS or Windows 95
 
 This causes:
 - Boot message shows "V20 (No FPU)" instead of "386"
+- **"Unable to control A20 line" error** (fatal for extended memory access)
 - HIMEM.SYS fails to load
 - Windows 95 can't access extended memory
 
-## Old Solution: Use SeaBIOS (NO LONGER NEEDED)
+## Why SeaBIOS? (Better than INT 15h Interception)
 
-SeaBIOS is an open-source BIOS that:
-- Supports i386 CPU detection
-- Reports extended memory correctly
-- Provides INT 15h services for HIMEM.SYS
-- Works with Windows 95
+An earlier attempt used CPU-level INT 15h interception, but this only solved memory detection - **it didn't provide A20 gate control**, which is essential.
+
+SeaBIOS provides the complete solution:
+- ✅ **A20 gate control** (enables extended memory access)
+- ✅ INT 15h memory detection services
+- ✅ Proper i386 CPU identification
+- ✅ System configuration services
+- ✅ Professional, well-tested implementation
+
+## Solution: Use SeaBIOS
+
+SeaBIOS is an open-source BIOS that provides everything i386 needs:
+- **A20 gate control** - enables access to memory above 1MB
+- i386 CPU detection and identification
+- Extended memory reporting (INT 15h services)
+- System configuration (INT 15h, AH=C0h)
+- Full HIMEM.SYS support
+- Windows 95 compatibility
 
 ## Installation Steps
 
@@ -56,23 +60,49 @@ cp seabios.bin /media/youruser/SDCARD/
 cp seabios.bin pi/bin/
 ```
 
-### Step 3: Update faux86-3.cfg
+### Step 3: Update Config File
 
-Edit `faux86-3.cfg` and change the BIOS line:
+You need to tell Faux86 to use SeaBIOS instead of pcxtbios.bin.
 
-```ini
-# OLD:
+**Option A: Edit config file manually**
+```bash
+# On your SD card, edit pi/bin/faux86-3.cfg
+# Change this line:
 biosrom=pcxtbios.bin
 
-# NEW:
+# To this:
 biosrom=seabios.bin
 ```
 
-### Step 4: Reboot
+**Option B: Use sed (quick method)**
+```bash
+# On your SD card or before copying to SD card:
+cd pi/bin
+sed -i 's/biosrom=pcxtbios.bin/biosrom=seabios.bin/' faux86-3.cfg
+```
+
+The config file should be at: `pi/bin/faux86-3.cfg` on your SD card.
+
+### Step 4: Verify Files on SD Card
+
+Make sure you have these files in the right locations:
+```
+pi/
+├── kernel8-32.img          (488,164 bytes - i386 kernel)
+└── bin/
+    ├── seabios.bin         (128-256 KB - downloaded BIOS)
+    ├── faux86-3.cfg        (updated config)
+    ├── pcxtbios.bin        (old BIOS, keep as backup)
+    └── videorom.bin        (VGA ROM)
+```
+
+### Step 5: Boot and Verify
 
 Power cycle your Raspberry Pi. SeaBIOS should:
-- Detect CPU as "386" or "i386"
+- Show "SeaBIOS" banner on boot
+- Detect CPU as "i386" or "80386"
 - Report 32MB of RAM
+- **Successfully control A20 line** (no more errors!)
 - Allow HIMEM.SYS to load
 
 ## Verification
