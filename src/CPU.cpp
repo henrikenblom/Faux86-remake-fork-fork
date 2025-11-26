@@ -1324,7 +1324,100 @@ void CPU::intcall86 (uint8_t intnum)
 			#endif
 			return;
 		#endif
-		case 0x21: //DOS INTERRUPT
+		case 0x15: // System BIOS Services
+#ifdef CPU_386
+		// Intercept INT 15h to provide i386-specific memory information
+		switch (regs.byteregs[regah]) {
+			case 0x88: // Get Extended Memory Size (above 1MB)
+				// Return memory in KB above 1MB
+				regs.wordregs[regax] = (vm.config.ramSize - 0x100000) / 1024;
+				cf = 0; // Success
+				log(LogVerbose, "[BIOS] INT 15h AH=88h: Extended memory = %d KB", regs.wordregs[regax]);
+				return;
+
+			case 0xE8: // Get Extended Memory Size (E801h and E820h)
+				switch (regs.byteregs[regal]) {
+					case 0x01: // E801h - Get Memory Size for >64MB
+						// Return memory between 1MB and 16MB in 1KB blocks
+						regs.wordregs[regax] = 0x3C00; // 15MB in KB (max for this call)
+						regs.wordregs[regbx] = 0x3C00; // Same value
+						// Memory above 16MB in 64KB blocks
+						if (vm.config.ramSize > 0x1000000) {
+							regs.wordregs[regcx] = (vm.config.ramSize - 0x1000000) / 65536;
+							regs.wordregs[regdx] = (vm.config.ramSize - 0x1000000) / 65536;
+						} else {
+							regs.wordregs[regcx] = 0;
+							regs.wordregs[regdx] = 0;
+						}
+						cf = 0; // Success
+						log(LogVerbose, "[BIOS] INT 15h E801h: Memory AX=%04X BX=%04X CX=%04X DX=%04X",
+							regs.wordregs[regax], regs.wordregs[regbx],
+							regs.wordregs[regcx], regs.wordregs[regdx]);
+						return;
+
+					case 0x20: // E820h - Get Memory Map
+						// Simplified memory map for i386
+						// This is what Windows 95 and modern OSes use
+						if (regs.dwordregs[regbx] == 0) {
+							// First call - return base memory
+							// ES:DI points to buffer, we write:
+							// Base Address (8 bytes), Length (8 bytes), Type (4 bytes)
+							uint32_t buffer = segaddr(segregs[reges], regs.wordregs[regdi]);
+
+							// Entry 0: Conventional memory (0-640KB)
+							vm.memory.writeDword(buffer + 0, 0x00000000); // Base Low
+							vm.memory.writeDword(buffer + 4, 0x00000000); // Base High
+							vm.memory.writeDword(buffer + 8, 0x0009FC00); // Length Low (639KB)
+							vm.memory.writeDword(buffer + 12, 0x00000000); // Length High
+							vm.memory.writeDword(buffer + 16, 1); // Type: Available RAM
+
+							regs.dwordregs[regbx] = 1; // Continuation value
+							regs.dwordregs[regcx] = 20; // Bytes returned
+							regs.dwordregs[regax] = 0x534D4150; // 'SMAP' signature
+							cf = 0;
+							log(LogVerbose, "[BIOS] INT 15h E820h: Entry 0 - Conventional memory");
+							return;
+						} else if (regs.dwordregs[regbx] == 1) {
+							// Second call - return extended memory
+							uint32_t buffer = segaddr(segregs[reges], regs.wordregs[regdi]);
+
+							// Entry 1: Extended memory (1MB-32MB)
+							vm.memory.writeDword(buffer + 0, 0x00100000); // Base: 1MB
+							vm.memory.writeDword(buffer + 4, 0x00000000); // Base High
+							vm.memory.writeDword(buffer + 8, vm.config.ramSize - 0x100000); // Length
+							vm.memory.writeDword(buffer + 12, 0x00000000); // Length High
+							vm.memory.writeDword(buffer + 16, 1); // Type: Available RAM
+
+							regs.dwordregs[regbx] = 0; // End of list
+							regs.dwordregs[regcx] = 20; // Bytes returned
+							regs.dwordregs[regax] = 0x534D4150; // 'SMAP' signature
+							cf = 0;
+							log(LogVerbose, "[BIOS] INT 15h E820h: Entry 1 - Extended memory %d bytes",
+								vm.config.ramSize - 0x100000);
+							return;
+						} else {
+							// End of list
+							cf = 1; // Error - no more entries
+							return;
+						}
+						break;
+				}
+				break;
+
+			case 0xC0: // Get System Configuration
+				// Point to a fake configuration table
+				// ES:BX should point to config table
+				// For now, just return success with minimal info
+				cf = 0; // Success
+				log(LogVerbose, "[BIOS] INT 15h AH=C0h: Get system configuration");
+				// Let BIOS handle it
+				break;
+		}
+#endif
+		// Fall through to BIOS for other INT 15h services
+		break;
+
+	case 0x21: //DOS INTERRUPT
   		//if (on_dos_int())	return;
   		break;
 		}
