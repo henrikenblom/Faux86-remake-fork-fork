@@ -1,8 +1,17 @@
 # Faux86-remake
 This is an improved and updated version of Faux86 XT PC Emulator.
-A portable, open-source 8086 Emulator for Win32 and bare metal ARM Raspberry Pi.
+A portable, open-source 8086/i386 Emulator for Win32 and bare metal ARM Raspberry Pi.
 
 ## Current Status
+
+**26-11-2025 i386 Support Complete (feature/i386-support branch)**
+- Full Intel 80386 (i386) CPU emulation
+- 32-bit protected mode with paging and segmentation
+- 32MB RAM for Windows 95 compatibility
+- All critical i386 instructions implemented
+- INT 15h BIOS memory detection (no SeaBIOS needed)
+- Ready for Windows 95 boot testing
+- See [I386_BUILD_INSTRUCTIONS.md](I386_BUILD_INSTRUCTIONS.md) and [I386_IMPLEMENTATION_STATUS.md](I386_IMPLEMENTATION_STATUS.md) for details
 
 11-07-2023 Release build v1.2 for 32/64Bit Windows
 [Faux86-remake Release Build V1.2 Win32](https://github.com/ArnoldUK/Faux86-remake/releases)
@@ -33,9 +42,12 @@ Faux86-remake is still work in progress but fixes many issues and adds more feat
 - Many bug fixes.
 
 ## Emulator Features
-- 8086, V20, 80186 and 286 instruction set.
+- 8086, V20, 80186, 286, and **i386 (80386)** instruction set.
+- **32-bit protected mode** with paging, segmentation, and task switching (i386).
+- **32MB RAM support** for Windows 95 compatibility (i386).
 - Configurable CPU speeds from 5Mhz upto 100Mhz.
 - Custom Hardware BIOS's supported.
+- **INT 15h BIOS memory detection** (no SeaBIOS required for i386).
 - Supports bootable disk images in .img and .raw file format.
 - CGA / EGA / VGA Colour Video emulation with most modes supported.
 - PC Speaker, Adlib, Soundblaster and Disney SoundSource.
